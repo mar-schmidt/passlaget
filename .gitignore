@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.local/
+supabase/.temp/
+coverage/
+*.tsbuildinfo
+.DS_Store
+__pycache__/
+*.pyc
+*.dump
+*.pdf

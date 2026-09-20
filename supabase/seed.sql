@@ -1,0 +1,2 @@
+-- Deliberately empty: never seed real people or demo data into a hosted project.
+-- Use bootstrap.example.sql once, with your own Auth admin ID, then import data in the admin UI.

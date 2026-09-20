@@ -1,0 +1,5 @@
+.local/
+dist/
+node_modules/
+package-lock.json
+supabase/functions/portal/deno.lock
