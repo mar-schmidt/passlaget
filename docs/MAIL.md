@@ -1,10 +1,20 @@
 # Kostnadsfria mejlpåminnelser
 
-**Mejl aktiveras senare.** Portalen driftsätts först med `MAIL_ENABLED=false` och `VITE_MAIL_ENABLED=false`. Inga nya utskick köas i det läget, och användaren erbjuds inte prenumeration eller lösenordsåterställning via mejl. Nedan beskrivs det förberedda Google-alternativet; avsändarkonto är ännu inte valt.
+**Mejl aktiveras senare.** Portalen driftsätts först med `MAIL_ENABLED=false` och `VITE_MAIL_ENABLED=false`. Inga nya utskick köas i det läget, och användaren erbjuds inte prenumeration eller lösenordsåterställning via mejl. Nedan beskrivs Google-alternativet. Kontoägaren behöver godkänna Google-behörigheten innan avsändaren aktiveras.
 
 Mejl skickas från ett Google-konto med Google Apps Script och MailApp. Ingen köpt domän behövs. Ett vanligt Gmail-konto har för närvarande en kvot på **100 mottagare per dag**. Kvoten delas med kontots andra skript. När kvoten tar slut väntar återstående mejl i kön. Detta är ingen garanti för omedelbar leverans; kalenderknappen fungerar oberoende av mejltjänsten.
 
 Koden i repositoryt gör inga utskick eller kontoändringar av sig själv. Aktivering görs när Supabase är konfigurerat och testmottagare har valts.
+
+## Kontaktuppgifter och mottagare
+
+Föräldern anger alltid mejladress när ett pass bekräftas. Adressen sparas på vald vuxen; en annan namngiven vuxen läggs till i familjens register. Den är privat och ingår varken i föräldrasidans API-svar eller kalenderfiler. Administratören kan lägga till eller rätta adressen under **Barn & föräldrar**. För den första tilldelningsnotisen behöver adressen finnas redan före publiceringen, eller läggas till av administratören efteråt.
+
+Publicerad tilldelning till en familj meddelar familjens aktiva vuxna som har mejladress. Är en viss vuxen vald går mejlet till den vuxna. Samma adress inom samma familj får ett meddelande, även om två vuxna delar inkorg. En förälders bekräftelse skickar ingen omedelbar tilldelningsnotis till samma person; den sparar kontakten och planerar framtida påminnelser.
+
+Under **Evenemang → Svar & uppföljning** kan administratören trycka **Påminn via mejl** för ett publicerat, framtida pass utan svar. Adress måste finnas och utskick måste vara aktiverade. Schemat och köposten sparas atomiskt. Nytt försök till samma pass begränsas i tio minuter. Strax före utskick kontrolleras på nytt att svaret fortfarande saknas, att uppdragets uppgifter stämmer och att mottagaradressen fortfarande gäller.
+
+De här verksamhetsmeddelandena använder sparade kontaktadresser direkt. Den äldre, frivilliga prenumerationsfunktionen stöds fortfarande på servern för befintliga länkar men erbjuds inte längre som ett separat steg på föräldrasidan. Kontaktmejl hänvisar till lagföräldern för adressändring. Tas adressen bort stoppas väntande kontaktmejl vid kontrollen före utskick.
 
 ## Förbered servern
 

@@ -3724,3 +3724,20 @@ tr:last-child td {
     transition-duration: 0.01ms !important;
   }
 }
+
+.confirmation-reminder {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  max-width: 18rem;
+}
+.confirmation-reminder .hint {
+  margin: 0;
+}
+.person-edit-row.adults {
+  flex-wrap: wrap;
+}
+.person-edit-row.adults > label:not(.check-label) {
+  min-width: 10rem;
+}

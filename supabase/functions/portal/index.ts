@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { applyCommand, publicState, DomainError } from '../../../src/domain/logic.ts';
+import { buildContactMailJobs, validContactMailEntries } from '../_shared/contact-mail.ts';
 import type { PortalCommand, PortalState } from '../../../src/domain/model.ts';
 import {
   buildMailJobs,
@@ -170,6 +171,24 @@ async function prepareMail(body: Record<string, any>) {
         to: mail.recipient,
         subject: mail.subject,
         text: `Återställ ditt administratörslösenord:\n${data.properties.action_link}\n\nOm du inte begärt detta kan du ignorera mejlet.`,
+      },
+    };
+  }
+  if (mail.payload.contact) {
+    if (!state) return suppress('state_missing');
+    const valid = await validContactMailEntries(mail.kind, mail.payload, state, mail.recipient);
+    if (!valid.length) return suppress('stale_contact_or_assignment');
+    return {
+      skip: false,
+      message: {
+        to: mail.recipient,
+        ...renderMail(
+          mail.subject,
+          valid,
+          mail.payload.confirmationOnly ? 'confirmation' : mail.kind,
+          appUrl,
+          '',
+        ),
       },
     };
   }
@@ -347,6 +366,7 @@ export async function handle(request: Request): Promise<Response> {
           10,
           60,
         );
+      if (command.type === 'remind_confirmation') requireMail();
       if (!Number.isInteger(body.expectedVersion) || body.expectedVersion !== state.version)
         throw new HttpError(409, 'Schemat har ändrats. Hämta senaste uppgifterna.', 'conflict');
       const next = applyCommand(state, command, isPublic ? 'public' : 'admin');
@@ -354,12 +374,22 @@ export async function handle(request: Request): Promise<Response> {
         throw new HttpError(400, 'Lagets id och adress kan inte ändras.');
       if (next.version !== state.version) {
         const jobs = mailEnabled
-          ? await buildMailJobs(
-              state,
-              next,
-              (await rpc('subscriptions', { team_id: state.team.id })) as Subscription[],
-            )
+          ? [
+              ...(await buildMailJobs(
+                state,
+                next,
+                ((await rpc('subscriptions', { team_id: state.team.id })) as Subscription[]).filter(
+                  (s) =>
+                    !next.adults.some(
+                      (a) => a.active && a.email === s.email && a.familyIds.includes(s.family_id),
+                    ),
+                ),
+              )),
+              ...(await buildContactMailJobs(state, next, command)),
+            ]
           : [];
+        if (command.type === 'remind_confirmation' && !jobs.some((j) => j.payload.confirmationOnly))
+          throw new HttpError(400, 'Det finns ingen mejladress att påminna för detta pass.');
         await rpc('commit', {
           team_id: state.team.id,
           expected_version: state.version,

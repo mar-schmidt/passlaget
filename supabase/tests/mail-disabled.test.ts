@@ -145,3 +145,53 @@ describe('Core portal with mail deferred', () => {
     delete settings.MAIL_TOKEN_SECRET;
   });
 });
+
+describe('contact email while sender setup is pending', () => {
+  it('collects a valid email on confirmation while keeping the outbox empty', async () => {
+    const event = current.events.find((e) => e.published)!;
+    const slot = event.published!.shifts[0].slots[0];
+    const adult = current.adults.find((a) => a.familyIds.includes(slot.familyId!))!;
+    const response = await handle(
+      request({
+        action: 'command',
+        expectedVersion: current.version,
+        command: {
+          type: 'confirm',
+          eventId: event.id,
+          slotId: slot.id,
+          familyId: slot.familyId,
+          revision: slot.revision,
+          adultId: adult.id,
+          adultName: adult.name,
+          adultPhone: adult.phone,
+          adultEmail: 'parent@example.test',
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(current.adults.find((a) => a.id === adult.id)!.email).toBe('parent@example.test');
+    expect(calls('commit')[0][1].p_args.jobs).toEqual([]);
+  });
+  it('does not pretend an admin reminder was queued while the sender is disabled', async () => {
+    const event = current.events.find((e) => e.published)!;
+    const slot = event.published!.shifts[0].slots[0];
+    const response = await handle(
+      request(
+        {
+          action: 'command',
+          expectedVersion: current.version,
+          command: {
+            type: 'remind_confirmation',
+            eventId: event.id,
+            slotId: slot.id,
+            familyId: slot.familyId,
+            revision: slot.revision,
+          },
+        },
+        true,
+      ),
+    );
+    expect(response.status).toBe(503);
+    expect(calls('commit')).toHaveLength(0);
+  });
+});

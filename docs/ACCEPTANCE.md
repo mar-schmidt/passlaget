@@ -24,9 +24,9 @@ Den lokala versionen har tester för regler, gränssnitt, kalender, behörighets
 
 ## Kräver valt Google-konto och godkänd testmottagare
 
-- Prenumeration aktiveras endast via bekräftelsemejlet.
+- Sparad kontaktadress får rätt tilldelningsnotis och påminnelse. Äldre frivilliga prenumerationer aktiveras endast via bekräftelsemejlet.
 - Publicering, byte, inställning och påminnelse ger rätt mottagare och rätt uppdrag.
-- Avregistrering stoppar redan köade utskick.
+- Borttagen kontaktadress stoppar redan köade kontaktutskick. Avregistrering stoppar äldre prenumerationsutskick.
 - Avbruten kvittering efter en sändning orsakar inte automatisk dubbelsändning.
 - Administratören kan hantera en osäker sändning och se senaste körning.
 
@@ -56,4 +56,15 @@ Den lokala versionen har tester för regler, gränssnitt, kalender, behörighets
 
 ## Aktuell avgränsning
 
-Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera under bygget. Därför är visuell webbläsargranskning och faktiska mobilkalendrar ännu inte godkända. Komponenten testas separat med en simulerad DOM. Supabase-organisation, databas, Auth och Edge-funktion är driftsatta. Familjeimporten behöver granskas innan laget börjar använda portalen. Google-behörighet och verkliga utskick väntar enligt beslutet att ta mejl senare. Ingen mejlaktivering har gjorts.
+Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera under bygget. Därför är visuell webbläsargranskning och faktiska mobilkalendrar ännu inte godkända. Komponenten testas separat med en simulerad DOM. Supabase-organisation, databas, Auth och Edge-funktion är driftsatta. Familjeimporten behöver granskas innan laget börjar använda portalen. Avsändarkonto är valt och en privat installationsfil är förberedd, men kontoägarens Google-godkännande och prov med verkligt mejl återstår. Ingen mejlaktivering har gjorts.
+
+## Mejladress och enskild påminnelse
+
+- 134 automatiserade tester passerar (116 i Vitest och 18 för arbetare/återställning), samt SQL-kontrollen och produktionsbygget.
+- Driftprovet efter uppdaterad databas och serverfunktion passerar: en tillfällig testfamilj måste ange mejladress vid bekräftelse, adressen normaliseras och sparas, och publika svar saknar adressen. Enskild påminnelse nekas tydligt medan utskick är avstängda. Testlaget togs bort, den riktiga lagdatan är oförändrad och inga mejljobb skapades. Databasbehörigheter och RLS är fortsatt verifierade; Advisors visar endast de redan dokumenterade notiserna ovan.
+- Bekräfta med registrerad eller ny vuxen. Mejladress krävs, normaliseras och sparas privat. Publika svar och kalenderexport saknar mejladresser.
+- Lägg till eller ändra mejladress i Barn & föräldrar. Återimport av äldre register utan mejlfält får inte radera adressen.
+- Publicering med familjetilldelning mejlar familjens adresser; vald vuxen begränsar mottagaren. Gemensam adress inom familjen får ett utskick.
+- Påminn ett framtida, obekräftat pass under Svar & uppföljning. Saknad adress och avstängd avsändare ger tydligt besked, aldrig falsk leveransstatus.
+- Bekräfta eller flytta passet före worker-körningen: gammal påminnelse undertrycks. Ny adress, avslutad uppgift och återkallad kontakt kontrolleras vid sändning.
+- Bara inloggad lagadministratör får begära påminnelse. Dubbelklick och gammal schemaversion ska inte skapa dubbla utskick.

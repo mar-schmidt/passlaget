@@ -77,6 +77,14 @@ test('prepares immediately before send, then acknowledges and removes receipt', 
   );
 });
 
+test('waits without sending or throwing while a newly installed sender is paused', () => {
+  const h = harness({ api: () => ({ httpStatus: 503, code: 'mail_disabled' }) });
+  assert.doesNotThrow(() => h.run());
+  assert.equal(h.sends.length, 0);
+  assert.equal(h.requests.length, 1);
+  assert.equal(h.requests[0].action, 'mail_claim');
+});
+
 test('ack failure retries only acknowledgement before any new work', () => {
   let blockAck = true;
   let claimed = false;

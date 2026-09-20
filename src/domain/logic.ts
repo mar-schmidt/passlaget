@@ -42,6 +42,7 @@ const adminCommands = new Set([
   'complete_slots',
   'review_history',
   'import_data',
+  'remind_confirmation',
   'update_team',
 ]);
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -123,6 +124,58 @@ function phone(value: unknown, required = false): string {
     failure('Ange ett giltigt telefonnummer.');
   return result;
 }
+export function emailAddress(value: unknown, required = false): string {
+  const result = text(value ?? '', 'Mejladress', 254, !required).toLowerCase();
+  const [local, domain, ...extra] = result.split('@');
+  if (
+    result &&
+    (extra.length ||
+      !local ||
+      !domain ||
+      local.length > 64 ||
+      local.startsWith('.') ||
+      local.endsWith('.') ||
+      local.includes('..') ||
+      !/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+$/i.test(local) ||
+      !domain.includes('.') ||
+      !domain.split('.').every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label)))
+  )
+    failure('Ange en giltig mejladress.');
+  return result;
+}
+/** Private register contacts; never use this to project emails to the public portal. */
+export function assignmentContacts(state: PortalState, slot: Slot): Adult[] {
+  if (!state.families.some((f) => f.id === slot.familyId && f.active)) return [];
+  const seen = new Set<string>();
+  return state.adults.filter((adult) => {
+    if (
+      !adult.active ||
+      !adult.familyIds.includes(slot.familyId || '') ||
+      !adult.email ||
+      (slot.adultId && adult.id !== slot.adultId)
+    )
+      return false;
+    const email = emailAddress(adult.email);
+    if (!email || seen.has(email)) return false;
+    seen.add(email);
+    return true;
+  });
+}
+function mergeAdults(state: PortalState, adults: Adult[]): Adult[] {
+  return upsert(
+    state.adults,
+    adults.map((adult) =>
+      adult.email === undefined
+        ? {
+            ...adult,
+            ...(state.adults.find((a) => a.id === adult.id)?.email !== undefined
+              ? { email: state.adults.find((a) => a.id === adult.id)!.email }
+              : {}),
+          }
+        : adult,
+    ),
+  );
+}
 function parseFamily(value: unknown): Family {
   const item = object(value, 'Familj');
   const family: Family = {
@@ -160,6 +213,7 @@ function parseAdult(value: unknown): Adult {
     id: id(item.id),
     name: text(item.name, 'Vuxens namn'),
     phone: phone(item.phone),
+    ...(item.email === undefined ? {} : { email: emailAddress(item.email) }),
     familyIds,
     active: boolean(item.active, 'Aktiv vuxen'),
   };
@@ -457,15 +511,13 @@ export function validateEvent(state: PortalState, eventId: string): string[] {
       details.shifts
         .filter((shift) => !shift.externalTeam)
         .flatMap((shift) =>
-          shift.slots
-            .filter(activeSlot)
-            .map((slot) => ({
-              event,
-              shift,
-              slot,
-              start: timestamp(shift.startsAt),
-              end: timestamp(shift.endsAt),
-            })),
+          shift.slots.filter(activeSlot).map((slot) => ({
+            event,
+            shift,
+            slot,
+            start: timestamp(shift.startsAt),
+            end: timestamp(shift.endsAt),
+          })),
         ),
     )
     .sort((a, b) => a.start - b.start);
@@ -687,6 +739,8 @@ function preserveOutcome(slot: Slot, prior: Slot): void {
   slot.revision = prior.revision;
   slot.confirmedAt = prior.confirmedAt;
   slot.confirmedRevision = prior.confirmedRevision;
+  slot.reminderRequestedAt = prior.reminderRequestedAt;
+  slot.reminderRevision = prior.reminderRevision;
 }
 function checkPublishedSlot(
   state: PortalState,
@@ -783,7 +837,7 @@ export function applyCommand(
         failure('Barn och vuxna måste kopplas till den redigerade familjen.');
       next.families = upsert(next.families, [family]);
       next.children = upsert(next.children, children);
-      next.adults = upsert(next.adults, adults);
+      next.adults = mergeAdults(next, adults);
       validateRelations(next);
       summary = `Familjen ${family.label} sparades.`;
       break;
@@ -989,9 +1043,10 @@ export function applyCommand(
     }
     case 'confirm': {
       const { event, shift, slot } = checkPublishedSlot(next, input);
-      const adultId = optionalId(input.adultId, 'Vuxen');
+      let adultId = optionalId(input.adultId, 'Vuxen');
       const adultName = text(input.adultName, 'Ansvarig vuxen');
       const adultPhone = phone(input.adultPhone, true);
+      const adultEmail = emailAddress(input.adultEmail, true);
       if (adultId) {
         const adult = next.adults.find((adult) => adult.id === adultId);
         if (!adult || !adult.active || !adult.familyIds.includes(slot.familyId!))
@@ -1001,12 +1056,36 @@ export function applyCommand(
             'Namnet stämmer inte med den valda vuxna. Välj ange annan ansvarig vuxen om någon annan kommer.',
           );
       }
+      // Resolve an explicitly named adult once, so future assignments can use the contact.
+      if (!adultId)
+        adultId = next.adults.find(
+          (adult) =>
+            adult.active &&
+            adult.familyIds.includes(slot.familyId!) &&
+            normalized(adult.name) === normalized(adultName) &&
+            adult.phone.replace(/\D/g, '') === adultPhone.replace(/\D/g, ''),
+        )?.id;
+      const contact = next.adults.find((adult) => adult.id === adultId);
+      const emailChanged = contact?.email !== adultEmail;
+      if (contact) contact.email = adultEmail;
+      else {
+        adultId = `adult:confirmation:${next.version + 1}:${slot.id}`;
+        next.adults.push({
+          id: adultId,
+          name: adultName,
+          phone: adultPhone,
+          email: adultEmail,
+          familyIds: [slot.familyId!],
+          active: true,
+        });
+      }
       if (
         slot.status === 'confirmed' &&
         slot.adultId === adultId &&
         slot.adultName === adultName &&
         slot.adultPhone === adultPhone &&
-        slot.confirmedRevision === slot.revision
+        slot.confirmedRevision === slot.revision &&
+        !emailChanged
       )
         return state;
       const old = clone(slot);
@@ -1035,6 +1114,28 @@ export function applyCommand(
       if (conflicts.length) failure(conflicts.join('\n'), 409);
       event.updatedAt = at;
       summary = 'Ett pass bekräftades utan identitetskontroll.';
+      break;
+    }
+    case 'remind_confirmation': {
+      const { event, shift, slot } = checkPublishedSlot(next, input);
+      if (slot.status !== 'pending') failure('Passet är redan bekräftat.', 409);
+      if (timestamp(shift.startsAt) <= timestamp(at)) failure('Passet har redan börjat.', 409);
+      if (!assignmentContacts(next, slot).length)
+        failure('Mejladress saknas. Lägg till den under Barn & föräldrar.');
+      if (
+        slot.reminderRevision === slot.revision &&
+        slot.reminderRequestedAt &&
+        timestamp(at) - timestamp(slot.reminderRequestedAt) < 10 * 60 * 1000
+      )
+        failure('En påminnelse har nyligen begärts. Vänta tio minuter innan du skickar igen.', 409);
+      slot.reminderRequestedAt = at;
+      slot.reminderRevision = slot.revision;
+      const draft = findSlot(event.draft, slot.id);
+      if (draft && draft.slot.familyId === slot.familyId) {
+        draft.slot.reminderRequestedAt = at;
+        draft.slot.reminderRevision = slot.revision;
+      }
+      summary = 'En mejlpåminnelse om saknad bekräftelse begärdes.';
       break;
     }
     case 'request_change': {
@@ -1128,7 +1229,7 @@ export function applyCommand(
       );
       next.families = upsert(next.families, families);
       next.children = upsert(next.children, children);
-      next.adults = upsert(next.adults, adults);
+      next.adults = mergeAdults(next, adults);
       for (const entry of history) {
         if (entry.verified && timestamp(entry.endsAt) > timestamp(at))
           failure(

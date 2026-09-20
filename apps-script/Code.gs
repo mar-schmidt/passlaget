@@ -131,6 +131,13 @@ function workerApi_(config, body) {
     followRedirects: false,
     validateHttpsCertificates: true
   });
+  // A freshly installed sender can wait quietly while the portal is still paused.
+  // Never treat a failed prepare/ack as success: their receipts must be retained.
+  if (body.action === 'mail_claim' && response.getResponseCode() === 503) {
+    var paused;
+    try { paused = JSON.parse(response.getContentText()); } catch (_) { paused = null; }
+    if (paused && paused.code === 'mail_disabled') return { messages: [], paused: true };
+  }
   if (response.getResponseCode() < 200 || response.getResponseCode() >= 300) {
     throw new Error('WORKER_API_REJECTED');
   }

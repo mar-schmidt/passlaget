@@ -34,7 +34,7 @@ import type {
   Shift,
   Slot,
 } from '../domain/model';
-import { autoPlan, balances, validateEvent } from '../domain/logic';
+import { assignmentContacts, autoPlan, balances, validateEvent } from '../domain/logic';
 import { api, isDemo, mailEnabled, mailStatus, type MailStatus } from '../client';
 import {
   BusyButton,
@@ -227,7 +227,7 @@ export default function Admin({ state, page, navigate, mutate, tell }: Props) {
         </div>
         {event.published && !event.cancelled && (
           <button className="followup-link" onClick={() => setCompletion(event.id)}>
-            Följ upp genomförda pass
+            Svar & uppföljning
             <ChevronRight size={14} />
           </button>
         )}
@@ -1148,7 +1148,7 @@ function Completion({
   }
   return (
     <Modal
-      title="Följ upp genomförda pass"
+      title="Svar & uppföljning"
       onClose={() => {
         if (!busy) onClose();
       }}
@@ -1205,17 +1205,27 @@ function Completion({
               </div>
               <Status slot={slot} />
               <div className="button-row">
-                {[true, false].map((completed) => (
-                  <BusyButton
-                    key={String(completed)}
-                    busy={busy === slot.id + String(completed)}
-                    disabled={!!busy || !ended.includes(slot.id)}
-                    className={`button compact ${slot.status === (completed ? 'completed' : 'absent') ? 'primary' : 'secondary'}`}
-                    onClick={() => complete([slot.id], completed, slot.id + String(completed))}
-                  >
-                    {completed ? 'Genomfört' : 'Ej genomfört'}
-                  </BusyButton>
-                ))}
+                {slot.status === 'pending' && new Date(shift.startsAt) > new Date() && (
+                  <ConfirmationReminder
+                    state={state}
+                    event={event}
+                    slot={slot}
+                    mutate={mutate}
+                    tell={tell}
+                  />
+                )}
+                {ended.includes(slot.id) &&
+                  [true, false].map((completed) => (
+                    <BusyButton
+                      key={String(completed)}
+                      busy={busy === slot.id + String(completed)}
+                      disabled={!!busy || !ended.includes(slot.id)}
+                      className={`button compact ${slot.status === (completed ? 'completed' : 'absent') ? 'primary' : 'secondary'}`}
+                      onClick={() => complete([slot.id], completed, slot.id + String(completed))}
+                    >
+                      {completed ? 'Genomfört' : 'Ej genomfört'}
+                    </BusyButton>
+                  ))}
               </div>
             </div>
           ))}
@@ -1226,6 +1236,73 @@ function Completion({
         </p>
       </div>
     </Modal>
+  );
+}
+
+function ConfirmationReminder({
+  state,
+  event,
+  slot,
+  mutate,
+  tell,
+}: {
+  state: PortalState;
+  event: PortalEvent;
+  slot: Slot;
+  mutate: Mutate;
+  tell: Tell;
+}) {
+  const [busy, setBusy] = useState(false);
+  const recipients = assignmentContacts(state, slot);
+  const recent =
+    slot.reminderRevision === slot.revision &&
+    !!slot.reminderRequestedAt &&
+    Date.now() - Date.parse(slot.reminderRequestedAt) < 10 * 60 * 1000;
+  const reason = !recipients.length
+    ? 'Mejladress saknas – lägg till under Barn & föräldrar.'
+    : !mailEnabled
+      ? 'Mejlutskick är inte aktiverade ännu.'
+      : recent
+        ? 'Påminnelse begärd. Du kan påminna igen om tio minuter.'
+        : '';
+  return (
+    <div className="confirmation-reminder">
+      <BusyButton
+        className="button secondary compact"
+        busy={busy}
+        disabled={!!reason}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await mutate(
+              {
+                type: 'remind_confirmation',
+                eventId: event.id,
+                slotId: slot.id,
+                familyId: slot.familyId!,
+                revision: slot.revision,
+              },
+              state.version,
+            );
+            tell(
+              isDemo
+                ? 'Påminnelsen visas i demot. Inget mejl skickas.'
+                : 'Påminnelsen är lagd i utskickskön.',
+            );
+          } catch (e) {
+            tell((e as Error).message, true);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <Mail size={15} />
+        {recent ? 'Påminnelse begärd' : 'Påminn via mejl'}
+      </BusyButton>
+      <span className="hint">
+        {reason || `Till ${recipients.map((a) => a.name).join(' och ')}`}
+      </span>
+    </div>
   );
 }
 
@@ -1494,6 +1571,16 @@ function FamilyEditor({
                     onChange={(e) => patchAdult(adult.id, { phone: e.target.value })}
                   />
                 </label>
+                <label>
+                  Mejladress
+                  <input
+                    type="email"
+                    maxLength={254}
+                    autoComplete="email"
+                    value={adult.email || ''}
+                    onChange={(e) => patchAdult(adult.id, { email: e.target.value })}
+                  />
+                </label>
                 <label className="check-label">
                   <input
                     type="checkbox"
@@ -1518,8 +1605,8 @@ function FamilyEditor({
               Lägg till vuxen
             </button>
             <p className="hint">
-              Uppdaterade kontaktuppgifter används vid nya tilldelningar. Kontrollera redan
-              publicerade pass om kontaktpersonen ändras.
+              Mejladresser visas bara här för administratören och används för tilldelningar och
+              påminnelser. Föräldrar fyller också i mejladressen när de bekräftar ett pass.
             </p>
           </div>
           <div className="form-section form-stack">
@@ -2466,12 +2553,16 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
                   </div>
                 </div>
                 <p>
-                  Föräldern aktiverar påminnelser med en bekräftelse i sin mejl. Adressen visas inte
-                  för andra familjer.
+                  Mejladressen sparas när föräldern bekräftar ett pass. Du kan också lägga till den
+                  under Barn & föräldrar. Adressen visas inte för andra familjer.
                 </p>
                 <p>
                   Utskick läggs i kö när uppdrag publiceras eller ändras. Påminnelser skickas bara
                   om uppdraget fortfarande är aktuellt.
+                </p>
+                <p>
+                  Under Svar & uppföljning kan du påminna om ett enskilt pass som saknar
+                  bekräftelse.
                 </p>
                 <p className="hint">
                   Vid osäker leverans stoppas automatisk omsändning. Kontrollera mottagaren eller

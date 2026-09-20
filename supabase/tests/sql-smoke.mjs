@@ -284,6 +284,59 @@ assert.equal(
   ).rows[0].n,
   1,
 );
+// Direct adult notices use the same version-guarded commit and retain all RLS boundaries.
+const contactBefore = (await rpc('read', { slug: 'team-one' })).state;
+const contactState = {
+  ...contactBefore,
+  version: contactBefore.version + 1,
+  adults: [
+    {
+      id: 'adult-contact',
+      name: 'Synthetic adult',
+      familyIds: ['f1'],
+      active: true,
+      email: 'parent@example.test',
+    },
+  ],
+};
+const contactJob = {
+  kind: 'reminder',
+  dedupeKey: 'contact-reminder',
+  recipient: 'parent@example.test',
+  subject: 'Synthetic reminder',
+  payload: {
+    contact: { familyId: 'f1', adultIds: ['adult-contact'] },
+    confirmationOnly: true,
+    entries: [],
+  },
+  priority: 10,
+  dueAt: new Date().toISOString(),
+};
+await assert.rejects(
+  () =>
+    rpc('commit', {
+      team_id: 't1',
+      expected_version: contactBefore.version,
+      state: contactState,
+      jobs: [{ ...contactJob, recipient: 'unrelated@example.test' }],
+    }),
+  /INVALID_CONTACT/,
+);
+assert.equal((await rpc('read', { slug: 'team-one' })).version, contactBefore.version);
+await rpc('commit', {
+  team_id: 't1',
+  expected_version: contactBefore.version,
+  state: contactState,
+  jobs: [contactJob, contactJob],
+});
+const contactRows = (
+  await db.query(
+    "select recipient,subscription_id from portal_private.outbox where dedupe_key='contact-reminder'",
+  )
+).rows;
+assert.equal(contactRows.length, 1);
+assert.equal(contactRows[0].recipient, 'parent@example.test');
+assert.equal(contactRows[0].subscription_id, null);
 await db.close();
 console.log(
   'Postgres smoke checks passed: migration, role grants, team isolation, atomic state/outbox, rate limits, consent, leases, receipts, recovery and explicit reconciliation.',

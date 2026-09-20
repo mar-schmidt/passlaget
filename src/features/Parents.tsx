@@ -6,12 +6,11 @@ import {
   Download,
   ExternalLink,
   HeartHandshake,
-  Mail,
   MapPin,
   Phone,
   Search,
 } from 'lucide-react';
-import { api, isDemo, mailEnabled, readPortal } from '../client';
+import { readPortal } from '../client';
 import { googleCalendarUrl, toIcs } from '../domain/calendar';
 import type {
   PortalState,
@@ -64,7 +63,6 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
   const [confirm, setConfirm] = useState<Selection | null>(null);
   const [request, setRequest] = useState<Selection | null>(null);
   const [calendar, setCalendar] = useState<CalendarEvent | null>(null);
-  const [mail, setMail] = useState(false);
   const [loadingCalendar, setLoadingCalendar] = useState('');
   const family = state.families.find((f) => f.id === familyId && f.active);
   const now = Date.now();
@@ -493,12 +491,6 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                         );
                       })
                     )}
-                    {mailEnabled && (
-                      <button className="md-link md-mail" onClick={() => setMail(true)}>
-                        <Mail size={17} aria-hidden="true" />
-                        Mejlpåminnelser
-                      </button>
-                    )}
                   </section>
                 )}
                 <section
@@ -595,12 +587,6 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
               <h1>Lagets bemanning</h1>
               <h2>Inget schema är publicerat ännu</h2>
               <p>Nästa tilldelning dyker upp här när planeringen är klar.</p>
-              {family && mailEnabled && (
-                <button className="md-link" onClick={() => setMail(true)}>
-                  <Mail size={17} aria-hidden="true" />
-                  Mejlpåminnelser
-                </button>
-              )}
             </section>
           )}
         </>
@@ -700,9 +686,6 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
           </div>
         </Modal>
       )}
-      {mail && mailEnabled && (
-        <MailModal state={state} familyId={familyId} onClose={() => setMail(false)} tell={tell} />
-      )}
     </div>
   );
 }
@@ -726,6 +709,7 @@ function ConfirmModal({
   const [adultId, setAdultId] = useState(initial?.id || '');
   const [name, setName] = useState(initial?.name || item.slot.adultName || '');
   const [phone, setPhone] = useState(item.slot.adultPhone || initial?.phone || '');
+  const [email, setEmail] = useState('');
   const [accept, setAccept] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -747,6 +731,7 @@ function ConfirmModal({
               adultId: adultId || undefined,
               adultName: name.trim(),
               adultPhone: phone.trim(),
+              adultEmail: email.trim(),
             });
           } catch (e) {
             setError((e as Error).message);
@@ -771,6 +756,7 @@ function ConfirmModal({
                 const adult = adults.find((a) => a.id === e.target.value);
                 setName(adult?.name || '');
                 setPhone(adult?.phone || '');
+                setEmail('');
               }}
             >
               {adults.map((a) => (
@@ -808,6 +794,22 @@ function ConfirmModal({
         </label>
         <p className="hint">
           Namn och telefonnummer visas i evenemangets schema. Uppgifterna gäller detta pass.
+        </p>
+        <label>
+          Mejladress
+          <input
+            required
+            type="email"
+            maxLength={254}
+            autoComplete="email"
+            inputMode="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </label>
+        <p className="hint">
+          Mejladressen sparas på den som kommer och används för tilldelningar och påminnelser. Den
+          visas inte för andra föräldrar.
         </p>
         <label className="check-label">
           <input
@@ -883,88 +885,6 @@ function RequestModal({
         {error && <Notice text={error} error />}
         <BusyButton busy={busy} className="button primary" type="submit">
           Skicka förfrågan
-        </BusyButton>
-      </form>
-    </Modal>
-  );
-}
-function MailModal({
-  state,
-  familyId,
-  onClose,
-  tell,
-}: {
-  state: PortalState;
-  familyId: string;
-  onClose: () => void;
-  tell: (message: string, error?: boolean) => void;
-}) {
-  const [email, setEmail] = useState('');
-  const [adultId, setAdultId] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  return (
-    <Modal title="Påminnelser till din mejl" onClose={onClose}>
-      <form
-        className="modal-body form-stack"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          setBusy(true);
-          try {
-            if (isDemo) {
-              tell('Detta är en demonstration. Inga mejl skickas.');
-            } else {
-              await api({
-                action: 'subscribe',
-                familyId,
-                adultId: adultId || undefined,
-                email,
-                scope: adultId ? 'adult' : 'family',
-              });
-              tell(
-                'Om adressen kan registreras skickas ett mejl för att bekräfta prenumerationen.',
-              );
-            }
-            onClose();
-          } catch (e) {
-            setError((e as Error).message);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        <p>Få information när ett pass tilldelas eller ändras och en påminnelse inför uppdraget.</p>
-        <label>
-          Vilka pass?
-          <select value={adultId} onChange={(e) => setAdultId(e.target.value)}>
-            <option value="">Alla familjens pass</option>
-            {familyAdults(state, familyId).map((a) => (
-              <option key={a.id} value={a.id}>
-                Pass där {a.name} ansvarar
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Din mejladress
-          <input
-            type="email"
-            required
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            maxLength={254}
-          />
-        </label>
-        <p className="hint">
-          Adressen visas inte i schemat. Du aktiverar påminnelserna via ett mejl och kan avsluta dem
-          med länken i varje utskick.
-        </p>
-        {isDemo && <div className="demo-note">Demoläge: inga mejl skickas.</div>}
-        {error && <Notice text={error} error />}
-        <BusyButton type="submit" className="button primary" busy={busy}>
-          <Mail size={17} />
-          Aktivera påminnelser
         </BusyButton>
       </form>
     </Modal>

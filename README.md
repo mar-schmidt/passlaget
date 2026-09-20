@@ -30,7 +30,7 @@ En ansluten portal använder Supabase Auth för administration. Föräldrasidan 
 - Enkel föräldrabekräftelse, byte av ansvarig vuxen, bytesförfrågningar och gemensamt schema.
 - Matchdagen: välj familj en gång och se det egna uppdraget tillsammans med evenemangets bemanning. Datumspalt, tydliga rollrader och samtliga familjepass samlade i en enkel lista. Administrationen har en separat meny.
 - En kalenderknapp för varje uppdrag: Google Kalender eller ICS för kompatibla kalenderappar. Kopian uppdateras inte automatiskt.
-- Förberett för frivilliga mejlpåminnelser, verifiering av mejladress, avregistrering och utskickskö. **Mejl är avstängt vid första driftsättningen och aktiveras senare.**
+- Privat mejladress per vuxen, obligatorisk vid bekräftelse. Tilldelningar och ändringar skickas till familjens kontaktadresser, eller vald vuxen. Enskilda påminnelser om saknade svar finns under **Svar & uppföljning**. Gmail behöver vara anslutet för själva utskicken.
 - Historik, kontroll av importerade insatser, balans per familj och export.
 
 ## Kostnadsfri drift

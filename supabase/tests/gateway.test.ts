@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { demoState } from '../../src/domain/demo.ts';
+import { entries } from '../functions/_shared/mail.ts';
 const mock = vi.hoisted(() => ({
   rpc: vi.fn(),
   getUser: vi.fn(),
@@ -206,5 +207,116 @@ describe('Edge gateway authorization boundary', () => {
       ).status,
     ).toBe(403);
     expect(mock.rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe('email-aware participation gateway', () => {
+  function upcoming() {
+    const event = current.events.find((e) => e.published)!;
+    const shift = event.published!.shifts[0];
+    const slot = shift.slots[0];
+    slot.status = 'pending';
+    shift.startsAt = '2030-06-15T09:00:00Z';
+    shift.endsAt = '2030-06-15T11:00:00Z';
+    const adult = current.adults.find((a) => a.familyIds.includes(slot.familyId!))!;
+    adult.email = 'parent@example.test';
+    return { event, slot, adult };
+  }
+  it('requires admin membership before allowing an individual reminder', async () => {
+    const { event, slot } = upcoming();
+    const body = {
+      action: 'command',
+      teamSlug: current.team.slug,
+      expectedVersion: current.version,
+      command: {
+        type: 'remind_confirmation',
+        eventId: event.id,
+        slotId: slot.id,
+        familyId: slot.familyId,
+        revision: slot.revision,
+      },
+    };
+    expect((await handle(request(body))).status).toBe(401);
+    expect((await handle(request(body, { Authorization: 'Bearer test' }))).status).toBe(403);
+    member = true;
+    expect((await handle(request(body, { Authorization: 'Bearer test' }))).status).toBe(200);
+    const commit = calls('commit').at(-1)![1].p_args;
+    expect(
+      commit.jobs.some(
+        (job: any) => job.payload.confirmationOnly && job.recipient === 'parent@example.test',
+      ),
+    ).toBe(true);
+  });
+  it('stores the entered email and routine reminders together without exposing the address in the response', async () => {
+    const { event, slot, adult } = upcoming();
+    const response = await handle(
+      request({
+        action: 'command',
+        teamSlug: current.team.slug,
+        expectedVersion: current.version,
+        command: {
+          type: 'confirm',
+          eventId: event.id,
+          slotId: slot.id,
+          familyId: slot.familyId,
+          revision: slot.revision,
+          adultId: adult.id,
+          adultName: adult.name,
+          adultPhone: adult.phone,
+          adultEmail: 'PRIVATE@example.test',
+        },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).not.toContain('private@example.test');
+    const commit = calls('commit')[0][1].p_args;
+    expect(commit.state.adults.find((a: any) => a.id === adult.id).email).toBe(
+      'private@example.test',
+    );
+    expect(
+      commit.jobs.some((j: any) => j.recipient === 'private@example.test' && j.kind === 'reminder'),
+    ).toBe(true);
+    expect(commit.jobs.some((j: any) => j.kind === 'assignment')).toBe(false);
+  });
+  it('prepares a direct contact reminder without a legacy subscription and suppresses it after confirmation', async () => {
+    const { event, slot, adult } = upcoming();
+    const payload = {
+      contact: { familyId: slot.familyId, adultIds: [adult.id] },
+      confirmationOnly: true,
+      entries: entries(current).filter((e) => e.eventId === event.id && e.slotId === slot.id),
+    };
+    const normal = mock.rpc.getMockImplementation()!;
+    mock.rpc.mockImplementation(async (name, args) =>
+      args.p_op === 'mail_prepare'
+        ? {
+            data: {
+              mail: {
+                id: 'b092b4b3-8493-48c2-bfde-01a7db3c91f1',
+                kind: 'reminder',
+                recipient: 'parent@example.test',
+                subject: 'Bekräfta passet',
+                payload,
+              },
+              subscription: null,
+              state: current,
+            },
+            error: null,
+          }
+        : normal(name, args),
+    );
+    const body = {
+      action: 'mail_prepare',
+      workerSecret: settings.MAIL_WORKER_SECRET,
+      id: 'b092b4b3-8493-48c2-bfde-01a7db3c91f1',
+      leaseToken: '57d5b7e9-a1c9-498e-aafd-3c58e3e8cf8c',
+    };
+    const response = await handle(request(body));
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.message.to).toBe('parent@example.test');
+    expect(data.message.text).toContain('Vi saknar din bekräftelse');
+    slot.status = 'confirmed';
+    expect(await (await handle(request(body))).json()).toEqual({ skip: true });
+    expect(calls('mail_suppress')).toHaveLength(1);
   });
 });

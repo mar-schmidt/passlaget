@@ -328,6 +328,10 @@ describe('parent actions', () => {
       'Annan Testvuxen',
     );
     await user.click(within(dialog).getByRole('checkbox'));
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Mejladress' }),
+      'parent@example.test',
+    );
     await user.click(within(dialog).getByRole('button', { name: 'Bekräfta passet' }));
     await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
     expect(mutate.mock.calls[0][0]).toMatchObject({
@@ -438,6 +442,10 @@ describe('matchday parent view', () => {
         index ? 'adult-two' : 'adult-one',
       );
       await user.click(within(dialog).getByRole('checkbox'));
+      await user.type(
+        within(dialog).getByRole('textbox', { name: 'Mejladress' }),
+        'parent@example.test',
+      );
       await user.click(within(dialog).getByRole('button', { name: 'Bekräfta passet' }));
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     }
@@ -602,6 +610,10 @@ describe('administration across public actions', () => {
     await user.click(screen.getByRole('button', { name: 'Bekräfta passet' }));
     const dialog = screen.getByRole('dialog');
     await user.click(within(dialog).getByRole('checkbox'));
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Mejladress' }),
+      'parent@example.test',
+    );
     await user.click(within(dialog).getByRole('button', { name: 'Bekräfta passet' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(client.runCommand).toHaveBeenCalledTimes(1);
@@ -712,5 +724,65 @@ describe('honest mail service status', () => {
     expect(screen.queryByText(/Inga nya utskick köas/)).toBeNull();
     expect(screen.queryByText(/tidigare utskick är pausade/)).toBeNull();
     expect(screen.queryByRole('group', { name: 'Påminn före passet' })).toBeNull();
+  });
+});
+
+describe('parent contact emails and individual reminders', () => {
+  it('requires an email during confirmation, sends it with the answer, and keeps it out of public state', async () => {
+    const user = userEvent.setup();
+    const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'public'));
+    render(
+      <Parents
+        state={projected(server)}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={mutate}
+        tell={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Bekräfta passet' }));
+    const dialog = screen.getByRole('dialog');
+    const email = within(dialog).getByRole('textbox', { name: 'Mejladress' }) as HTMLInputElement;
+    expect(email.required).toBe(true);
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(within(dialog).getByRole('button', { name: 'Bekräfta passet' }));
+    expect(mutate).not.toHaveBeenCalled();
+    await user.type(within(dialog).getByRole('textbox', { name: 'Telefonnummer' }), '0700000001');
+    await user.type(email, 'parent@example.test');
+    await user.click(within(dialog).getByRole('button', { name: 'Bekräfta passet' }));
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(mutate.mock.calls[0][0]).toMatchObject({ adultEmail: 'parent@example.test' });
+    const next: PortalState = await mutate.mock.results[0].value;
+    expect(next.adults.some((a) => a.email === 'parent@example.test')).toBe(true);
+    expect(JSON.stringify(projected(next))).not.toContain('parent@example.test');
+  });
+  it('lets admin remind one pending assignment using its current revision', async () => {
+    const user = userEvent.setup();
+    server.adults[0].email = 'parent@example.test';
+    const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'admin'));
+    render(
+      <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Svar & uppföljning' }));
+    await user.click(screen.getByRole('button', { name: 'Påminn via mejl' }));
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(mutate.mock.calls[0][0]).toMatchObject({
+      type: 'remind_confirmation',
+      eventId: 'event-one',
+      slotId: 'slot-one',
+      familyId: 'family-one',
+      revision: 1,
+    });
+  });
+  it('explains a missing address instead of offering a reminder that cannot be sent', async () => {
+    const user = userEvent.setup();
+    render(
+      <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={vi.fn()} tell={vi.fn()} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Svar & uppföljning' }));
+    expect(
+      (screen.getByRole('button', { name: 'Påminn via mejl' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText('Mejladress saknas – lägg till under Barn & föräldrar.')).toBeTruthy();
   });
 });

@@ -17,6 +17,7 @@ export interface Adult {
   id: string;
   name: string;
   phone: string;
+  email?: string;
   familyIds: string[];
   active: boolean;
 }
@@ -44,6 +45,8 @@ export interface Slot {
   status: SlotStatus;
   confirmedAt?: string;
   confirmedRevision?: number;
+  reminderRequestedAt?: string;
+  reminderRevision?: number;
 }
 export interface Shift {
   id: string;
@@ -137,6 +140,14 @@ export type PortalCommand =
       adultId?: string;
       adultName: string;
       adultPhone: string;
+      adultEmail: string;
+    }
+  | {
+      type: 'remind_confirmation';
+      eventId: string;
+      slotId: string;
+      familyId: string;
+      revision: number;
     }
   | {
       type: 'request_change';

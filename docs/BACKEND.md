@@ -122,3 +122,11 @@ Backa upp både `portal_private` och administratörskopplingar före större än
 Efter tillämpad migration och deploy ska ett testlag verifiera: publik läsning, blockerad rådatabasåtkomst, adminmedlemskap, stale-version 409, publicering, bekräftelse, mejlverifiering, återställningslänk och adminbeslut om osäker sändning. Kör även Supabase Advisors när det faktiska projektet finns. Den lokala PGlite-kontrollen verifierar SQL-logiken men har ingen riktig Supabase Auth/API-gateway.
 
 Tekniska referenser: [API-nycklar](https://supabase.com/docs/guides/getting-started/api-keys), [Edge-auth](https://supabase.com/docs/guides/functions/auth-headers), [generateLink](https://supabase.com/docs/reference/javascript/auth-admin-generatelink), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).
+
+## Privata kontaktadresser och begärd bekräftelsepåminnelse
+
+`Adult.email` är frivilligt för äldre register och adminimport. `confirm.adultEmail` är däremot obligatoriskt. Servern accepterar en enda giltig adress och sparar normaliserat värde på den vuxna. Nya namngivna vuxna får en registerkoppling. Den explicita publika projektionen utelämnar mejladressen och intern påminnelsemetadata.
+
+`remind_confirmation` är ett administratörskommando med `eventId`, `slotId`, `familyId` och `revision`. Det kräver aktiverad avsändare, rätt lagbehörighet, aktuell version, framtida publicerat pass med `pending` och en användbar kontaktadress. `reminderRequestedAt`/`reminderRevision` ger tio minuters spärr och beskriver en begärd köläggning, inte leverans.
+
+Direkta kontaktjobb använder `outbox.subscription_id = null`, en serverberäknad `recipient` samt `payload.contact` med familj och vuxen-ID:n. SQL-kopplingen kontrollerar att adressen verkligen hör till en sparad aktiv vuxen i familjen innan tillstånd och jobb kan committas tillsammans. Ingen browserroll får RPC-behörighet. Worker-kontrollen läser den aktuella kontakten igen och undertrycker gamla adresser, omfördelningar, inaktuella uppdrag och besvarade bekräftelsepåminnelser. `payload.confirmationOnly` skiljer manuella svarspåminnelser från vanliga kommande-pass-påminnelser.

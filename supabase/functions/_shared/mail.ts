@@ -10,6 +10,7 @@ export interface Subscription {
   status: string;
   verify_hash?: string;
   verify_expires_at?: string;
+  contactAdultIds?: string[];
 }
 export interface MailEntry {
   eventId: string;
@@ -28,11 +29,17 @@ export interface MailEntry {
   status: string;
 }
 export interface MailJob {
-  subscriptionId: string;
+  subscriptionId?: string;
+  recipient?: string;
   kind: 'assignment' | 'changed' | 'cancelled' | 'reminder';
   dedupeKey: string;
   subject: string;
-  payload: { entries: MailEntry[]; reminderDays?: number };
+  payload: {
+    entries: MailEntry[];
+    reminderDays?: number;
+    contact?: { familyId: string; adultIds: string[] };
+    confirmationOnly?: boolean;
+  };
   priority: number;
   dueAt: string;
 }
@@ -70,7 +77,9 @@ export function entries(state: PortalState): MailEntry[] {
 export function matches(subscription: Subscription, entry: MailEntry) {
   return (
     subscription.family_id === entry.familyId &&
-    (subscription.scope === 'family' || subscription.adult_id === entry.adultId)
+    (subscription.contactAdultIds
+      ? !entry.adultId || subscription.contactAdultIds.includes(entry.adultId)
+      : subscription.scope === 'family' || subscription.adult_id === entry.adultId)
   );
 }
 const active = (entry: MailEntry) =>
@@ -231,7 +240,12 @@ export function renderMail(
       ...lines,
       changeNote,
       `Aktuell information${kind === 'cancelled' ? '' : ' och bekräftelse'}: ${portalUrl}`,
-      `Avsluta mejlpåminnelser: ${unsubscribeUrl}`,
+      kind === 'confirmation'
+        ? 'Vi saknar din bekräftelse. Öppna Passlaget, välj din familj och bekräfta vem som kommer.'
+        : '',
+      unsubscribeUrl
+        ? `Avsluta mejlpåminnelser: ${unsubscribeUrl}`
+        : 'Kontakta lagföräldern om dina kontaktuppgifter behöver ändras.',
     ]
       .filter(Boolean)
       .join('\n\n'),
