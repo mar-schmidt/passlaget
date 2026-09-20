@@ -19,7 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import type { PortalCommand, PortalState } from './domain/model';
-import { api, isDemo, readPortal, resetDemo, runCommand, supabase } from './client';
+import { api, isDemo, mailEnabled, readPortal, resetDemo, runCommand, supabase } from './client';
 import Parents from './features/Parents';
 import Admin from './features/Admin';
 import { BusyButton, Modal, Notice } from './ui';
@@ -38,7 +38,7 @@ const adminPages = [
   { id: 'evenemang', name: 'Evenemang', icon: CalendarDays },
   { id: 'familjer', name: 'Barn & föräldrar', icon: Users },
   { id: 'fordelning', name: 'Rättvis fördelning', icon: ChartNoAxesCombined },
-  { id: 'paminnelser', name: 'Mejl & drift', icon: Mail },
+  { id: 'paminnelser', name: mailEnabled ? 'Mejl & drift' : 'Kontakt & drift', icon: Mail },
 ] as const;
 export default function App() {
   const [state, setState] = useState<PortalState | null>(null);
@@ -387,6 +387,7 @@ function LoginModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
           setMessage('');
           try {
             if (reset) {
+              if (!mailEnabled) throw new Error('Återställning via mejl är inte aktiverad.');
               await api({
                 action: 'request_recovery',
                 email,
@@ -443,23 +444,30 @@ function LoginModal({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         <BusyButton className="button primary full" type="submit" busy={busy}>
           {reset ? 'Skicka återställningsmejl' : 'Logga in'}
         </BusyButton>
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => {
-            setReset(!reset);
-            setMessage('');
-          }}
-        >
-          {reset ? (
-            <>
-              <ArrowLeft size={15} />
-              Till inloggning
-            </>
-          ) : (
-            'Glömt lösenord?'
-          )}
-        </button>
+        {mailEnabled ? (
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => {
+              setReset(!reset);
+              setMessage('');
+            }}
+          >
+            {reset ? (
+              <>
+                <ArrowLeft size={15} />
+                Till inloggning
+              </>
+            ) : (
+              'Glömt lösenord?'
+            )}
+          </button>
+        ) : (
+          <p className="hint">
+            Återställning via mejl är inte aktiverad. Kontakta den som förvaltar portalen om du
+            behöver ett nytt lösenord.
+          </p>
+        )}
       </form>
     </Modal>
   );

@@ -34,11 +34,22 @@ const db = createClient(env('SUPABASE_URL'), secretKey, {
 });
 const tokenSecret = env('MAIL_TOKEN_SECRET'),
   workerSecret = env('MAIL_WORKER_SECRET');
-if (tokenSecret.length < 32 || workerSecret.length < 32)
+// Mail is opt-in. Core planning must work before any sender or mail secret exists.
+const mailEnabled = env('MAIL_ENABLED') === 'true';
+if (mailEnabled && (tokenSecret.length < 32 || workerSecret.length < 32))
   throw new Error(
     'Configure independent MAIL_TOKEN_SECRET and MAIL_WORKER_SECRET (at least 32 characters)',
   );
-if (tokenSecret === workerSecret) throw new Error('Mail secrets must be different');
+if (mailEnabled && tokenSecret === workerSecret) throw new Error('Mail secrets must be different');
+
+function requireMail() {
+  if (!mailEnabled)
+    throw new HttpError(
+      503,
+      'Mejlfunktionen är inte aktiverad ännu. Inga mejl har lagts i kö.',
+      'mail_disabled',
+    );
+}
 
 async function rpc(op: string, args: Record<string, unknown> = {}): Promise<any> {
   const { data, error } = await db.rpc('portal_backend', { p_op: op, p_args: args });
@@ -212,6 +223,7 @@ export async function handle(request: Request): Promise<Response> {
       throw new HttpError(400, 'Ogiltig begäran.');
     const action = stringValue(body.action, 'action', 40);
     if (action.startsWith('mail_') && !['mail_status', 'mail_resolve'].includes(action)) {
+      requireMail();
       workerOnly(body);
       if (action === 'mail_claim')
         return response(
@@ -248,6 +260,7 @@ export async function handle(request: Request): Promise<Response> {
       mail_resolve: [30, 60],
     };
     if (!Object.hasOwn(globalLimits, action)) throw new HttpError(400, 'Okänd åtgärd.');
+    if (['subscribe', 'verify_subscription', 'request_recovery'].includes(action)) requireMail();
     const globalLimit = globalLimits[action];
     // This bucket is fixed, independent of caller-controlled IPs, emails or family IDs.
     if (
@@ -296,6 +309,13 @@ export async function handle(request: Request): Promise<Response> {
       return response({ ok: true });
     }
     if (action === 'unsubscribe') {
+      // Keep old opt-out links working while sending is paused, when their key is retained.
+      if (tokenSecret.length < 32)
+        throw new HttpError(
+          503,
+          'Mejlfunktionen är inte konfigurerad. Kontakta portalens ansvariga för hjälp.',
+          'mail_disabled',
+        );
       const id = await readToken(body.token, tokenSecret);
       await rpc('unsubscribe', { id });
       return response({ ok: true });
@@ -333,10 +353,13 @@ export async function handle(request: Request): Promise<Response> {
       if (next.team.id !== state.team.id || next.team.slug !== state.team.slug)
         throw new HttpError(400, 'Lagets id och adress kan inte ändras.');
       if (next.version !== state.version) {
-        const subscriptions = (await rpc('subscriptions', {
-          team_id: state.team.id,
-        })) as Subscription[];
-        const jobs = await buildMailJobs(state, next, subscriptions);
+        const jobs = mailEnabled
+          ? await buildMailJobs(
+              state,
+              next,
+              (await rpc('subscriptions', { team_id: state.team.id })) as Subscription[],
+            )
+          : [];
         await rpc('commit', {
           team_id: state.team.id,
           expected_version: state.version,
@@ -381,6 +404,7 @@ export async function handle(request: Request): Promise<Response> {
     }
     if (action === 'mail_resolve') {
       const userId = await requireAdmin(request, state);
+      requireMail();
       if (!['sent', 'retry', 'suppress'].includes(body.outcome))
         throw new HttpError(400, 'Välj hantering för utskicket.');
       return response(
@@ -397,6 +421,7 @@ export async function handle(request: Request): Promise<Response> {
       const status = await rpc('mail_status', { team_id: state.team.id });
       return response({
         ...status,
+        enabled: mailEnabled,
         counts: {
           queued: 0,
           leased: 0,

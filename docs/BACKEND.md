@@ -28,7 +28,7 @@ Använd Node för webbprojektet, Supabase CLI 2.117 eller senare och Docker för
 npx supabase start
 npx supabase db reset
 cp supabase/functions/.env.example supabase/functions/.env.local
-# Fyll därefter i två olika slumpmässiga mailhemligheter i .env.local.
+# Behåll MAIL_ENABLED=false för start utan mejltjänst eller mejlhemligheter.
 npx supabase functions serve portal --env-file supabase/functions/.env.local
 ```
 
@@ -55,8 +55,9 @@ Konfigurera följande hemligheter för Edge-funktionen:
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | `APP_URL`              | Exakt publicerad portalbas, exempelvis `https://konto.github.io/passlaget/`. Inga parametrar eller hashfragment.  |
 | `PORTAL_ORIGINS`       | Kommaseparerade tillåtna ursprung, exempelvis `https://konto.github.io`. Vid frånvaro används APP_URL:s ursprung. |
-| `MAIL_WORKER_SECRET`   | Slumpmässig hemlighet på minst 32 tecken för Apps Script.                                                         |
-| `MAIL_TOKEN_SECRET`    | En annan slumpmässig hemlighet på minst 32 tecken som signerar avregistreringslänkar.                             |
+| `MAIL_ENABLED`         | `false` vid första driftsättningen. Endast exakt `true` aktiverar mejlfunktionerna.                               |
+| `MAIL_WORKER_SECRET`   | Krävs när mejl aktiveras: slumpmässig hemlighet på minst 32 tecken för Apps Script.                               |
+| `MAIL_TOKEN_SECRET`    | Krävs när mejl aktiveras: en annan slumpmässig hemlighet på minst 32 tecken som signerar avregistreringslänkar.   |
 | `SUPABASE_URL`         | Tillhandahålls automatiskt av Supabase.                                                                           |
 | `SUPABASE_SECRET_KEYS` | Supabases JSON-objekt med den nya backendnyckeln under `default`.                                                 |
 
@@ -65,6 +66,14 @@ Konfigurera följande hemligheter för Edge-funktionen:
 Auth Site URL och tillåtna redirects ska motsvara `APP_URL` exakt. Servern ignorerar användarskickad `returnUrl`; återställning får aldrig skicka en användare till en godtycklig adress. Inställningarna i `config.toml` gäller lokalt; ange motsvarande inställningar i det verkliga projektet.
 
 Funktionen `portal` har `verify_jwt = false` eftersom föräldrafunktionerna är öppna och worker använder en egen begränsad hemlighet. Detta innebär inte att adminfunktionerna är öppna: dessa verifierar JWT och lagmedlemskap i handlern. Skicka publicerbar API-nyckel i `apikey`, aldrig som JWT. Administratörer skickar dessutom `Authorization: Bearer <session access token>`.
+
+## Drift utan mejl
+
+`MAIL_ENABLED` är avstängt om värdet saknas eller inte är exakt `true`. Kärnflödena startar utan mejlhemligheter och sparar alltid en tom lista med nya mejljobb; gamla köposter ändras inte. Prenumeration, adressverifiering, lösenordsåterställning, workeråtgärder och köbeslut svarar då HTTP 503 med `code: mail_disabled`, utan framgångsbesked eller köskrivningar. Skyddad `mail_status` fungerar fortfarande och visar verkliga köuppgifter med `enabled: false`.
+
+Befintliga avregistreringslänkar fortsätter fungera om `MAIL_TOKEN_SECRET` behålls; utan nyckeln ges ett tydligt avslag. För en senare paus i redan aktiv drift måste worker stoppas och dess pågående kvittenser stämmas av **innan** `MAIL_ENABLED` stängs av, eftersom även `mail_ack` då blockeras. Läs [mejlguiden](MAIL.md) före återaktivering. Aktivering skapar inga nya jobb för ändringar som gjordes medan mejl var avstängt; befintlig kö måste granskas innan en worker startas igen.
+
+Webbbygget använder dessutom `VITE_MAIL_ENABLED=false` så att föräldrar inte erbjuds prenumeration eller lösenordsmejl. Båda flaggorna måste sättas till `true` när en fungerande mejlavsändare tas i bruk. Kalenderknappen är oberoende av dem.
 
 ## HTTP-kontrakt
 
@@ -79,7 +88,7 @@ Varje publik åtgärd har en fast global anropsgräns som inte kan kringgås gen
 - `{action:'verify_subscription',token}` → `{ok:true}`. Token gäller i 48 timmar och används en gång. Länken är `APP_URL?subscription=...`; UI bekräftar via POST.
 - `{action:'unsubscribe',token}` → `{ok:true}`. Signerad länk är `APP_URL?unsubscribe=...`; UI visar först en knapp. Ingen GET ändrar prenumeration.
 - `{action:'request_recovery',email,returnUrl?}` → neutralt `{ok:true,message}`. Bara befintliga administratörer får köposter.
-- `{action:'mail_status',teamSlug}` + admin-JWT → `{counts,lastWorkerAt,lastSentAt,messages}`. `messages` innehåller senaste 100 poster med `id,kind,status,to,subject,createdAt,sentAt,error`, aldrig hemliga payloads.
+- `{action:'mail_status',teamSlug}` + admin-JWT → `{enabled,counts,lastWorkerAt,lastSentAt,messages}`. `messages` innehåller senaste 100 poster med `id,kind,status,to,subject,createdAt,sentAt,error`, aldrig hemliga payloads.
 - `{action:'mail_resolve',teamSlug,id,outcome:'sent'|'retry'|'suppress'}` + admin-JWT → `{ok:true}`. Gäller endast lagets misslyckade/osäkra utskick. Ett uttryckligt administratörsbeslut loggas.
 
 Fel är `{error:svensk text,code}` med HTTP 400, 401, 403, 404, 409, 413, 429 eller 503. Vid 409 ska klienten läsa om och låta användaren ta ställning; en nyare bekräftelse får inte automatiskt antas accepterad.
@@ -96,7 +105,7 @@ En lease gäller i tio minuter. Utgången lease blir **uncertain**, inte automat
 
 `mail_resolve: retry` ska bara användas när administratören kontrollerat att mejlet inte skickats. Pausa worker och stäm av dess lokala kvitton före en sådan bedömning, särskilt vid en pågående störning; fördröjda kvitton från en gammal lease ska inte kunna ändra ett nytt utskicksförsök. `sent` betyder att sändning har bekräftats, inte att mejlet har levererats eller lästs. `suppress` avstår vidare utskick.
 
-Köposter skapas i samma databastransaktion som publiceringen. Meddelanden till samma prenumeration om flera samtidigt publicerade pass sammanförs. Påminnelser får unika nycklar baserade på passets publicerade uppgifter och tidsavstånd. Opublicerade utkast, importerad historik och bekräftelse utan relevant ändring skapar inga nya tilldelningsnotiser. Gamla påminnelsetider skapas inte i efterhand, och passerade pass undertrycks före sändning. Medgivande kontrolleras igen vid `mail_prepare`.
+När mejl är aktiverat skapas köposter i samma databastransaktion som publiceringen. Meddelanden till samma prenumeration om flera samtidigt publicerade pass sammanförs. Påminnelser får unika nycklar baserade på passets publicerade uppgifter och tidsavstånd. Opublicerade utkast, importerad historik och bekräftelse utan relevant ändring skapar inga nya tilldelningsnotiser. Gamla påminnelsetider skapas inte i efterhand, och passerade pass undertrycks före sändning. Medgivande kontrolleras igen vid `mail_prepare`.
 
 Ändrings- och borttagningsnotiser kan skickas även medan passet pågår. En familj som avaktiverats får fortfarande veta att dess pass tagits bort, förutsatt att mejlmedgivandet finns kvar. Ett sådant mejl säger tydligt att passet inte längre ska bemannas och att en sparad kalenderkopia behöver tas bort manuellt. Mejladressen måste vara en enda giltig mottagare; mottagarlistor och kontrolltecken avvisas.
 

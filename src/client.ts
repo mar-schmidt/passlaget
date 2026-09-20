@@ -6,6 +6,7 @@ import type { PortalCommand, PortalState } from './domain/model';
 const url = import.meta.env.VITE_SUPABASE_URL?.trim();
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
 export const isDemo = !url || !key;
+export const mailEnabled = isDemo || import.meta.env.VITE_MAIL_ENABLED === 'true';
 export const supabase = !isDemo
   ? createClient(url!, key!, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
@@ -82,6 +83,7 @@ export async function runCommand(
   return fullShape(result.state);
 }
 export interface MailStatus {
+  enabled: boolean;
   counts: Record<string, number>;
   lastWorkerAt: string | null;
   lastSentAt: string | null;
@@ -99,6 +101,7 @@ export interface MailStatus {
 export async function mailStatus(): Promise<MailStatus> {
   if (isDemo)
     return {
+      enabled: true,
       counts: { queued: 0, leased: 0, sent: 0, failed: 0, uncertain: 0, suppressed: 0 },
       lastWorkerAt: null,
       lastSentAt: null,

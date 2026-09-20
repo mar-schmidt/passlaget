@@ -35,7 +35,7 @@ import type {
   Slot,
 } from '../domain/model';
 import { autoPlan, balances, validateEvent } from '../domain/logic';
-import { api, isDemo, mailStatus, type MailStatus } from '../client';
+import { api, isDemo, mailEnabled, mailStatus, type MailStatus } from '../client';
 import {
   BusyButton,
   dateLabel,
@@ -2246,6 +2246,7 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
   const [team, setTeam] = useState(() => structuredClone(state.team));
   const [busy, setBusy] = useState(false);
   const [resolving, setResolving] = useState('');
+  const activeMail = mailEnabled && (isDemo || status?.enabled === true);
   const workerFresh =
     !!status?.lastWorkerAt && Date.now() - Date.parse(status.lastWorkerAt) < 15 * 60 * 1000;
   const load = () => {
@@ -2278,9 +2279,13 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">KONTAKT & PÅMINNELSER</p>
-          <h1>Håll familjerna uppdaterade</h1>
-          <p className="muted">Familjer väljer själva att få mejl. Du ser om utskicken fungerar.</p>
+          <p className="eyebrow">KONTAKT & DRIFT</p>
+          <h1>{activeMail ? 'Håll familjerna uppdaterade' : 'Lagets kontaktuppgifter'}</h1>
+          <p className="muted">
+            {activeMail
+              ? 'Familjer väljer själva att få mejl. Du ser om utskicken fungerar.'
+              : 'Här anger du vem familjerna kan kontakta.'}
+          </p>
         </div>
         <button className="button secondary" onClick={load}>
           Uppdatera status
@@ -2296,12 +2301,40 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
         </div>
       )}
       {error && <Notice text={error} error />}
+      {!activeMail && (
+        <div className="hint-box">
+          <Mail size={21} />
+          <p>
+            {status?.enabled === false ? (
+              <>
+                <strong>Mejl aktiveras senare.</strong> Inga nya utskick köas.
+              </>
+            ) : status?.enabled === true ? (
+              <>
+                <strong>Utskick är aktiverade.</strong> Föräldrasidans mejlfunktion är ännu inte
+                tillgänglig.
+              </>
+            ) : (
+              <strong>
+                {error ? 'Utskicksstatus kunde inte hämtas.' : 'Hämtar utskicksstatus…'}
+              </strong>
+            )}{' '}
+            Familjerna ser och bekräftar sina pass i portalen och kan lägga till dem i kalendern.
+          </p>
+        </div>
+      )}
       <div className="stats-grid three">
         <Stat
           label="I kö"
           value={(status?.counts.queued || 0) + (status?.counts.leased || 0)}
           icon={<Clock3 />}
-          detail="Väntar på utskick"
+          detail={
+            status?.enabled === true
+              ? 'Väntar på utskick'
+              : status?.enabled === false
+                ? 'Eventuella tidigare utskick är pausade'
+                : 'Utskicksstatus är okänd'
+          }
         />
         <Stat
           label="Skickade"
@@ -2324,7 +2357,7 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
       <div className="settings-grid">
         <section className="panel">
           <div className="panel-heading">
-            <h2>Kontaktperson & påminnelser</h2>
+            <h2>{activeMail ? 'Kontaktperson & påminnelser' : 'Kontaktperson'}</h2>
             <Settings2 size={21} />
           </div>
           <form
@@ -2380,26 +2413,28 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
                 onChange={(e) => setTeam({ ...team, contactPhone: e.target.value })}
               />
             </label>
-            <fieldset className="reminder-options">
-              <legend>Påminn före passet</legend>
-              {[7, 3, 1].map((day) => (
-                <label key={day} className="check-label">
-                  <input
-                    type="checkbox"
-                    checked={team.reminderDays.includes(day)}
-                    onChange={(e) =>
-                      setTeam({
-                        ...team,
-                        reminderDays: e.target.checked
-                          ? [...team.reminderDays, day].sort((a, b) => b - a)
-                          : team.reminderDays.filter((d) => d !== day),
-                      })
-                    }
-                  />
-                  {day === 1 ? '24 timmar' : `${day} dagar`}
-                </label>
-              ))}
-            </fieldset>
+            {activeMail && (
+              <fieldset className="reminder-options">
+                <legend>Påminn före passet</legend>
+                {[7, 3, 1].map((day) => (
+                  <label key={day} className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={team.reminderDays.includes(day)}
+                      onChange={(e) =>
+                        setTeam({
+                          ...team,
+                          reminderDays: e.target.checked
+                            ? [...team.reminderDays, day].sort((a, b) => b - a)
+                            : team.reminderDays.filter((d) => d !== day),
+                        })
+                      }
+                    />
+                    {day === 1 ? '24 timmar' : `${day} dagar`}
+                  </label>
+                ))}
+              </fieldset>
+            )}
             <BusyButton busy={busy} type="submit" className="button primary">
               Spara inställningar
             </BusyButton>
@@ -2407,39 +2442,48 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
         </section>
         <section className="panel">
           <div className="panel-heading">
-            <h2>Så fungerar utskicken</h2>
+            <h2>{activeMail ? 'Så fungerar utskicken' : 'Information till familjerna'}</h2>
             <ShieldCheck size={21} />
           </div>
           <div className="panel-body form-stack">
-            <div className="service-status">
-              <span className={`service-dot ${workerFresh ? 'online' : ''}`} />
-              <div>
-                <strong>
-                  {workerFresh
-                    ? 'Utskicksrutinen har kontakt'
-                    : status?.lastWorkerAt
-                      ? 'Kontakten med utskicksrutinen behöver kontrolleras'
-                      : 'Ingen kontakt registrerad'}
-                </strong>
+            {activeMail ? (
+              <>
+                <div className="service-status">
+                  <span className={`service-dot ${workerFresh ? 'online' : ''}`} />
+                  <div>
+                    <strong>
+                      {workerFresh
+                        ? 'Utskicksrutinen har kontakt'
+                        : status?.lastWorkerAt
+                          ? 'Kontakten med utskicksrutinen behöver kontrolleras'
+                          : 'Ingen kontakt registrerad'}
+                    </strong>
+                    <p>
+                      {status?.lastWorkerAt
+                        ? `Senaste kontroll: ${dateLabel(status.lastWorkerAt, { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
+                        : 'Anslut den kostnadsfria mejlrutinen enligt driftguiden.'}
+                    </p>
+                  </div>
+                </div>
                 <p>
-                  {status?.lastWorkerAt
-                    ? `Senaste kontroll: ${dateLabel(status.lastWorkerAt, { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}`
-                    : 'Anslut den kostnadsfria mejlrutinen enligt driftguiden.'}
+                  Föräldern aktiverar påminnelser med en bekräftelse i sin mejl. Adressen visas inte
+                  för andra familjer.
                 </p>
-              </div>
-            </div>
-            <p>
-              Föräldern aktiverar påminnelser med en bekräftelse i sin mejl. Adressen visas inte för
-              andra familjer.
-            </p>
-            <p>
-              Utskick läggs i kö när uppdrag publiceras eller ändras. Påminnelser skickas bara om
-              uppdraget fortfarande är aktuellt.
-            </p>
-            <p className="hint">
-              Vid osäker leverans stoppas automatisk omsändning. Kontrollera mottagaren eller
-              avsändarkontot innan du beslutar att skicka igen.
-            </p>
+                <p>
+                  Utskick läggs i kö när uppdrag publiceras eller ändras. Påminnelser skickas bara
+                  om uppdraget fortfarande är aktuellt.
+                </p>
+                <p className="hint">
+                  Vid osäker leverans stoppas automatisk omsändning. Kontrollera mottagaren eller
+                  avsändarkontot innan du beslutar att skicka igen.
+                </p>
+              </>
+            ) : (
+              <p>
+                Dela portalens gemensamma länk med familjerna. Där kan de se sina uppdrag, bekräfta
+                vem som kommer och meddela förhinder.
+              </p>
+            )}
             <p className="hint">
               En kalenderknapp sparar en enskild kopia. Den uppdateras inte automatiskt när schemat
               ändras.
@@ -2454,7 +2498,13 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
         </div>
         {!status?.messages.length ? (
           <Empty icon={<Mail size={30} />} title="Inga utskick ännu">
-            Mejl visas här när prenumerationer har aktiverats och uppdrag publicerats.
+            {activeMail
+              ? 'Mejl visas här när prenumerationer har aktiverats och uppdrag publicerats.'
+              : status?.enabled === false
+                ? 'Mejlfunktionen är inte aktiverad.'
+                : status
+                  ? 'Inga utskick registrerade.'
+                  : 'Väntar på uppgifter från servern.'}
           </Empty>
         ) : (
           <div className="mail-list">
@@ -2484,7 +2534,7 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
                     suppressed: 'Stoppat',
                   }[message.status] || message.status}
                 </span>
-                {['failed', 'uncertain'].includes(message.status) && (
+                {activeMail && ['failed', 'uncertain'].includes(message.status) && (
                   <div className="button-row">
                     <button
                       disabled={!!resolving}

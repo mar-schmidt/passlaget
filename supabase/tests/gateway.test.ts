@@ -24,6 +24,7 @@ const settings: Record<string, string> = {
   PORTAL_ORIGINS: 'https://team.example.test',
   SUPABASE_URL: 'https://db.example.test',
   PORTAL_SUPABASE_SECRET_KEY: 'server-only-test-key',
+  MAIL_ENABLED: 'true',
   MAIL_TOKEN_SECRET: 'token-secret-for-test-'.repeat(3),
   MAIL_WORKER_SECRET: 'worker-secret-for-test-'.repeat(3),
 };

@@ -1,5 +1,7 @@
 # Kostnadsfria mejlpåminnelser
 
+**Mejl aktiveras senare.** Portalen driftsätts först med `MAIL_ENABLED=false` och `VITE_MAIL_ENABLED=false`. Inga nya utskick köas i det läget, och användaren erbjuds inte prenumeration eller lösenordsåterställning via mejl. Nedan beskrivs det förberedda Google-alternativet; avsändarkonto är ännu inte valt.
+
 Mejl skickas från ett Google-konto med Google Apps Script och MailApp. Ingen köpt domän behövs. Ett vanligt Gmail-konto har för närvarande en kvot på **100 mottagare per dag**. Kvoten delas med kontots andra skript. När kvoten tar slut väntar återstående mejl i kön. Detta är ingen garanti för omedelbar leverans; kalenderknappen fungerar oberoende av mejltjänsten.
 
 Koden i repositoryt gör inga utskick eller kontoändringar av sig själv. Aktivering görs när Supabase är konfigurerat och testmottagare har valts.
@@ -8,7 +10,8 @@ Koden i repositoryt gör inga utskick eller kontoändringar av sig själv. Aktiv
 
 1. Följ projektets instruktioner för Supabase Free och publicera Edge-funktionen `portal`.
 2. Skapa en slumpmässig, minst 32 tecken lång hemlighet. Sätt den som `MAIL_WORKER_SECRET` på servern och som `WORKER_SECRET` i Google-skriptets egenskaper. Lägg aldrig värdet i koden, GitHub Pages eller ett offentligt ärende. Hemligheten får endast ge åtkomst till utskickskön; använd inte Supabases `service_role` som worker-hemlighet. Serverns separata `MAIL_TOKEN_SECRET` ska ha ett annat slumpmässigt värde.
-3. Servern ska acceptera arbetarkontraktet nedan och kunna prioritera återställningsmejl och adressbekräftelser före vanliga påminnelser.
+3. När avsändaren är konfigurerad och kontoägaren godkänt en testmottagare, sätt `MAIL_ENABLED=true` på servern och `VITE_MAIL_ENABLED=true` i ett nytt webbbygge. Granska eventuell gammal kö innan arbetaren startas. Händelser under den avstängda perioden får inga retroaktiva notiser.
+4. Servern ska acceptera arbetarkontraktet nedan och kunna prioritera återställningsmejl och adressbekräftelser före vanliga påminnelser.
 
 ## Installera Google-skriptet
 
@@ -65,6 +68,8 @@ Tillåtna resultat är `sent`, `failed`, `uncertain`, `deferred`. `deferred` åt
 ## Pausa och överlämna
 
 Kör `removeMailTrigger` för att pausa den automatiska behandlingen. Den tar bara bort utlösare till `processMailQueue`. Kön finns kvar på servern. Återuppta med `installMailTrigger`.
+
+För att även stoppa skapandet av nya mejljobb: avsluta först pågående worker-körningar och stäm av alla lokala kvittenser, sätt sedan `MAIL_ENABLED=false` på servern och `VITE_MAIL_ENABLED=false` i ett nytt webbbygge. Även kvitteringsanrop blockeras när serverflaggan är av. Behåll `MAIL_TOKEN_SECRET` så att gamla avregistreringslänkar fungerar. Granska kvarvarande kö före återaktivering; gamla poster finns kvar, medan ändringar under pausen inte har köats.
 
 Vid byte av avsändarkonto: pausa gamla utlösaren, säkerställ att dess lokala kvittenser hanterats, kopiera skriptet till det nya kontot, konfigurera egenskaper och skapa en ny utlösare under den nya ägaren. Rotera worker-hemligheten vid behov. Radera inte gamla lokala kvittenser utan att först stämma av dem mot servern.
 

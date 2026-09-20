@@ -13,7 +13,7 @@ import {
   Search,
   Users,
 } from 'lucide-react';
-import { api, isDemo, readPortal } from '../client';
+import { api, isDemo, mailEnabled, readPortal } from '../client';
 import { googleCalendarUrl, toIcs } from '../domain/calendar';
 import type {
   PortalState,
@@ -152,7 +152,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
             Hela schemat
           </button>
         </div>
-        {familyId && (
+        {familyId && mailEnabled && (
           <button className="button ghost" onClick={() => setMail(true)}>
             <Mail size={17} />
             Mejlpåminnelser
@@ -470,7 +470,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
           </div>
         </Modal>
       )}
-      {mail && (
+      {mail && mailEnabled && (
         <MailModal state={state} familyId={familyId} onClose={() => setMail(false)} tell={tell} />
       )}
     </>

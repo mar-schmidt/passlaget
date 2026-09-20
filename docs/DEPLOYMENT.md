@@ -1,10 +1,10 @@
 # Sätt Passlaget i drift
 
-Budget: **0 kr**. Använd ett publikt repository på GitHub Free, en separat organisation med **Supabase Free**, och ett vanligt Google-konto för påminnelser. Aktivera ingen betalplan eller provperiod som övergår i betalning.
+Budget: **0 kr**. Använd ett publikt repository på GitHub Free, en separat organisation med **Supabase Free**, och aktivera mejl först senare när avsändare har valts. Aktivera ingen betalplan eller provperiod som övergår i betalning.
 
 ## 1. Skapa databasen
 
-1. Skapa organisationen **Passlaget** hos Supabase och välj Free. Skapa ett projekt i en tillgänglig EU-region. Vid denna leverans inväntas denna organisation.
+1. Skapa organisationen **Passlaget** hos Supabase och välj Free. Skapa ett projekt i en tillgänglig EU-region. Organisationen har skapats av kontoägaren; anslutningens åtkomst behöver uppdateras innan projektet kan sättas upp.
 2. Anslut med Supabase CLI och kontrollera projektreferensen innan migrationen körs. Ersätt platshållare, använd inga hemligheter i källkod.
 
 ```sh
@@ -19,7 +19,7 @@ npx supabase db push
 
 ## 2. Koppla serverfunktionen
 
-Skapa en privat fil `.local/backend.env` utifrån `supabase/functions/.env.example`. Sätt `APP_URL` till portalens fullständiga adress och `PORTAL_ORIGINS` till dess ursprung. Välj två separata slumpmässiga hemligheter på minst 32 tecken för `MAIL_WORKER_SECRET` och `MAIL_TOKEN_SECRET` och spara dem säkert. [Backendguiden](BACKEND.md) beskriver alla värden.
+Skapa en privat fil `.local/backend.env` utifrån `supabase/functions/.env.example`. Sätt `APP_URL` till portalens fullständiga adress och `PORTAL_ORIGINS` till dess ursprung. Behåll `MAIL_ENABLED=false`. Inga mejlhemligheter behövs då. När mejl senare aktiveras behövs två separata slumpmässiga hemligheter på minst 32 tecken för `MAIL_WORKER_SECRET` och `MAIL_TOKEN_SECRET`. [Backendguiden](BACKEND.md) beskriver alla värden.
 
 ```sh
 npx supabase secrets set --env-file .local/backend.env
@@ -38,11 +38,12 @@ Det medföljande arbetsflödet bygger enbart `dist/`. Det laddar inte upp `.loca
 
 I repositoryts Settings → Secrets and variables → Actions → **Variables**, ange:
 
-| Variabel                        | Värde                                                   |
-| ------------------------------- | ------------------------------------------------------- |
-| `VITE_SUPABASE_URL`             | Projektets `https://…supabase.co`-adress                |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Publicerbar Supabase-nyckel, aldrig secret/service_role |
-| `VITE_TEAM_SLUG`                | `landvetter-p2018`                                      |
+| Variabel                        | Värde                                                                  |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `VITE_SUPABASE_URL`             | Projektets `https://…supabase.co`-adress                               |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Publicerbar Supabase-nyckel, aldrig secret/service_role                |
+| `VITE_MAIL_ENABLED`             | `false` tills mejl aktiveras på servern och avsändaren är konfigurerad |
+| `VITE_TEAM_SLUG`                | `landvetter-p2018`                                                     |
 
 Efter aktivering av arbetsflödet: välj **GitHub Actions** som källa i GitHub Pages. Kör sedan arbetsflödet **Publicera Passlaget**. Det kör tester, bygger med `/passlaget/` som bas och publicerar. Ändra basadressen om repositoryt byter namn. Saknas båda Supabase-värdena publiceras en tydligt märkt, lokal demonstration; om bara ett värde finns avbryter byggkontrollen.
 
@@ -54,9 +55,11 @@ Till dess uppdateras `gh-pages` från ett kontrollerat `npm run build` med `VITE
 
 För lokal anslutning kopieras `.env.example` till `.env.local`, fylls i och utvecklingsservern startas om. Håll `VITE_BASE_PATH=/` lokalt.
 
-## 4. Aktivera påminnelser och importera
+## 4. Importera och aktivera mejl senare
 
-Följ [MAIL.md](MAIL.md) och installera Google-arbetaren. Kontoägaren behöver själv godkänna Google-behörigheten. Använd en testadress som kontoägaren har godkänt för det första verkliga utskicket. UI:ns status "Skickat" betyder att MailApp accepterat sändningen, inte att mottagaren läst eller fått den.
+Första driftsättningen sker utan mejl. Kalenderexport, bekräftelser, planering och kontaktuppgifter fungerar ändå. Nya mejljobb skapas inte under tiden. Lösenordsåterställning via mejl är inte tillgänglig; kontoägaren kan hjälpa administratören via Supabase Auth.
+
+När mejl ska aktiveras: följ [MAIL.md](MAIL.md) och installera Google-arbetaren. Kontoägaren behöver själv godkänna Google-behörigheten. Använd en testadress som kontoägaren har godkänt för det första verkliga utskicket. UI:ns status "Skickat" betyder att MailApp accepterat sändningen, inte att mottagaren läst eller fått den.
 
 Förbered och granska importen enligt [IMPORT.md](IMPORT.md). Riktiga personuppgifter finns endast i den lokala privata mappen, inte i demot. Kontrollera oklarheter innan registret sparas. Bekräfta historiska genomföranden per familj innan de räknas.
 

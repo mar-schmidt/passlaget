@@ -27,17 +27,17 @@ En ansluten portal använder Supabase Auth för administration. Föräldrasidan 
 - Arbetsutkast och separat publicerat schema. Förändrade uppdrag kräver ny bekräftelse. Samtidiga ändringar får en tydlig konflikt i stället för att skriva över varandra.
 - Enkel föräldrabekräftelse, byte av ansvarig vuxen, bytesförfrågningar och gemensamt schema.
 - En kalenderknapp för varje uppdrag: Google Kalender eller ICS för kompatibla kalenderappar. Kopian uppdateras inte automatiskt.
-- Frivilliga mejlpåminnelser, verifiering av mejladress, avregistrering, beständig utskickskö och administrativ hantering av osäkra sändningar.
+- Förberett för frivilliga mejlpåminnelser, verifiering av mejladress, avregistrering och utskickskö. **Mejl är avstängt vid första driftsättningen och aktiveras senare.**
 - Historik, kontroll av importerade insatser, balans per familj och export.
 
 ## Kostnadsfri drift
 
-Projektet är förberett för **GitHub Pages + Supabase Free + Google Apps Script/MailApp**. Ingen köpt domän eller betalplan behövs. Dessa externa konton måste vara anslutna innan portalen fungerar gemensamt för riktiga familjer. Gratiskvoter och eventuellt pausat Supabase-projekt kan fördröja utskick och ge tillfälliga avbrott.
+Portalen använder **GitHub Pages + Supabase Free**. Ingen köpt domän eller betalplan behövs. Ett anslutet Supabase-projekt krävs för gemensam lagring. Mejlfunktionen väntar tills avsändare har valts; Google Apps Script/MailApp finns förberett som ett kostnadsfritt alternativ. Portalen fungerar utan mejl. Gratiskvoter och eventuellt pausat Supabase-projekt kan ge tillfälliga avbrott.
 
 1. Följ [driftguiden](docs/DEPLOYMENT.md) för GitHub Pages och Supabase Free.
-2. Följ [mejlguiden](docs/MAIL.md) för det valda Google-kontot. Kontots ägare godkänner sändningsbehörigheten och installerar femminuterskörningen.
+2. Behåll `MAIL_ENABLED=false` på servern och `VITE_MAIL_ENABLED=false` i webbbygget. Då skapas inga mejljobb och föräldrar erbjuds inte mejlpåminnelser. Även lösenordsåterställning via mejl väntar. [Mejlguiden](docs/MAIL.md) används först vid senare aktivering.
 3. Granska och importera det privata underlaget enligt [importguiden](docs/IMPORT.md).
-4. Genomför [kontrollerna före pilot](docs/ACCEPTANCE.md), inklusive faktiska mobilkalendrar och utskick.
+4. Genomför [kontrollerna före pilot](docs/ACCEPTANCE.md), inklusive faktiska mobilkalendrar. Utskick kontrolleras först när mejl ska aktiveras.
 
 Den första demonstrationen publiceras manuellt från `gh-pages`. Det automatiska publiceringsflödet finns färdigt i `deployment/pages.yml`; nuvarande GitHub-inloggning saknar rättigheten att aktivera workflow-filer. Se driftguiden för aktivering.
 

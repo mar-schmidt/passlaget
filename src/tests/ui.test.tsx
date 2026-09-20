@@ -9,6 +9,7 @@ import Admin from '../features/Admin';
 import Parents from '../features/Parents';
 
 const client = vi.hoisted(() => ({
+  mailEnabled: true,
   readPortal: vi.fn(),
   runCommand: vi.fn(),
   api: vi.fn(),
@@ -19,6 +20,9 @@ const client = vi.hoisted(() => ({
 }));
 vi.mock('../client', () => ({
   isDemo: false,
+  get mailEnabled() {
+    return client.mailEnabled;
+  },
   readPortal: client.readPortal,
   runCommand: client.runCommand,
   api: client.api,
@@ -148,6 +152,7 @@ beforeEach(() => {
   localStorage.clear();
   history.replaceState(null, '', '/');
   server = fixture();
+  client.mailEnabled = true;
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   client.getSession.mockResolvedValue({ data: { session: { access_token: 'test-session' } } });
@@ -163,6 +168,7 @@ beforeEach(() => {
     return structuredClone(isPublic ? projected(server) : server);
   });
   client.mailStatus.mockResolvedValue({
+    enabled: true,
     counts: {},
     lastWorkerAt: null,
     lastSentAt: null,
@@ -359,5 +365,103 @@ describe('administration across public actions', () => {
     await user.click(screen.getByRole('button', { name: 'Rättvis fördelning' }));
     const historicalStat = screen.getByText('Genomförda pass').closest('.stat-card')!;
     expect(within(historicalStat as HTMLElement).getByText('1')).toBeTruthy();
+  });
+});
+
+describe('portal without email', () => {
+  it('keeps confirmation and calendar available without offering email subscriptions', async () => {
+    client.mailEnabled = false;
+    const user = userEvent.setup();
+    render(
+      <Parents
+        state={server}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Mejlpåminnelser' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Bekräfta passet' })).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: 'Lägg till i kalender' }));
+    expect(await screen.findByRole('dialog', { name: 'Lägg till i kalender' })).toBeTruthy();
+    expect(client.api).not.toHaveBeenCalled();
+  });
+
+  it('does not offer password recovery before email is active', async () => {
+    client.mailEnabled = false;
+    client.getSession.mockResolvedValue({ data: { session: null } });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('heading', { name: 'Lagets bemanning' });
+    await user.click(screen.getByRole('button', { name: 'Administration' }));
+    const dialog = screen.getByRole('dialog', { name: 'Logga in som lagförälder' });
+    expect(within(dialog).queryByRole('button', { name: 'Glömt lösenord?' })).toBeNull();
+    expect(within(dialog).getByText(/Återställning via mejl är inte aktiverad/)).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: 'Logga in' })).toBeTruthy();
+    expect(client.api).not.toHaveBeenCalled();
+  });
+
+  it('respects the backend mail switch and still saves the contact person', async () => {
+    client.mailStatus.mockResolvedValue({
+      enabled: false,
+      counts: {},
+      lastWorkerAt: null,
+      lastSentAt: null,
+      messages: [],
+    });
+    const user = userEvent.setup();
+    const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'admin'));
+    render(
+      <Admin state={server} page="paminnelser" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+    );
+    await waitFor(() => expect(client.mailStatus).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('Mejl aktiveras senare.')).toBeTruthy();
+    expect(screen.queryByRole('group', { name: 'Påminn före passet' })).toBeNull();
+    const contact = screen.getByRole('textbox', { name: 'Kontaktperson' });
+    await user.clear(contact);
+    await user.type(contact, 'Testansvarig');
+    await user.click(screen.getByRole('button', { name: 'Spara inställningar' }));
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(mutate.mock.calls[0][0]).toMatchObject({
+      type: 'update_team',
+      team: { contactName: 'Testansvarig' },
+    });
+    expect(client.api).not.toHaveBeenCalled();
+  });
+});
+
+describe('honest mail service status', () => {
+  it('does not claim sending is paused when the status request fails', async () => {
+    client.mailStatus.mockRejectedValue(new Error('Anslutningen bröts.'));
+    render(
+      <Admin
+        state={server}
+        page="paminnelser"
+        navigate={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText('Utskicksstatus kunde inte hämtas.')).toBeTruthy();
+    expect(screen.queryByText('Mejl aktiveras senare.')).toBeNull();
+    expect(screen.queryByText(/Inga nya utskick köas/)).toBeNull();
+  });
+
+  it('distinguishes hidden email controls from a disabled server sender', async () => {
+    client.mailEnabled = false;
+    render(
+      <Admin
+        state={server}
+        page="paminnelser"
+        navigate={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText('Utskick är aktiverade.')).toBeTruthy();
+    expect(screen.queryByText(/Inga nya utskick köas/)).toBeNull();
+    expect(screen.queryByText(/tidigare utskick är pausade/)).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Påminn före passet' })).toBeNull();
   });
 });
