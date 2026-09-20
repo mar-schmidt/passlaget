@@ -9,7 +9,6 @@ import {
   HeartHandshake,
   LayoutDashboard,
   LoaderCircle,
-  LogIn,
   LogOut,
   Mail,
   Menu,
@@ -94,6 +93,19 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [toast]);
   useEffect(() => {
+    if (!menu) return;
+    const previous = document.activeElement as HTMLElement | null;
+    document.querySelector<HTMLElement>('.sidebar-close')?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenu(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [menu]);
+  useEffect(() => {
     const params = new URLSearchParams(location.search);
     if (params.get('subscription'))
       setSubscriptionAction({ action: 'verify_subscription', token: params.get('subscription')! });
@@ -157,124 +169,131 @@ export default function App() {
     setFamilyId(id);
     localStorage.setItem('passlaget-family', id);
   };
+  const parentView = page === 'foraldrar' || !admin;
   return (
-    <div className="app-shell">
-      <aside className={`sidebar ${menu ? 'open' : ''}`}>
-        <a
-          href="#/foraldrar"
-          className="brand"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate('foraldrar');
-          }}
-        >
-          <span className="brand-symbol">p</span>
-          <span>
-            passlaget<span className="brand-dot">.</span>
-          </span>
-        </a>
-        <button
-          className="icon-button sidebar-close"
-          aria-label="Stäng meny"
-          onClick={() => setMenu(false)}
-        >
-          <X />
-        </button>
-        <div className="sidebar-team">
-          <span className="club-mark">LIS</span>
-          <div>
-            <strong>{state?.team.clubName || 'Landvetter IS'}</strong>
-            <span>{state?.team.name || 'P2018'}</span>
-          </div>
-        </div>
-        <p className="nav-caption">{admin ? 'ADMINISTRATION' : 'FÖR LAGETS FAMILJER'}</p>
-        <nav>
-          <button
-            className={`nav-item ${page === 'foraldrar' ? 'active' : ''}`}
-            onClick={() => navigate('foraldrar')}
+    <div className={`app-shell ${parentView ? 'parent-layout' : 'admin-layout'}`}>
+      {!parentView && (
+        <aside id="admin-navigation" className={`sidebar ${menu ? 'open' : ''}`}>
+          <a
+            href="#/foraldrar"
+            className="brand"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('foraldrar');
+            }}
           >
-            <HeartHandshake size={20} />
-            Föräldrasida{page === 'foraldrar' && <ChevronRight size={16} />}
+            <span>
+              passlaget<span className="brand-dot">.</span>
+            </span>
+          </a>
+          <button
+            className="icon-button sidebar-close"
+            aria-label="Stäng meny"
+            onClick={() => setMenu(false)}
+          >
+            <X />
           </button>
-          {admin &&
-            adminPages.map((item) => (
-              <button
-                key={item.id}
-                className={`nav-item ${page === item.id ? 'active' : ''}`}
-                onClick={() => navigate(item.id)}
-              >
-                <item.icon size={20} />
-                {item.name}
-                {page === item.id && <ChevronRight size={16} />}
-              </button>
-            ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="together-mark">
-            <span />
-            <span />
-            <span />
+          <div className="sidebar-team">
+            <Users size={22} aria-hidden="true" />
+            <div>
+              <strong>{state?.team.clubName || 'Landvetter IS'}</strong>
+              <span>{state?.team.name || 'P2018'}</span>
+            </div>
           </div>
-          <p>
-            Små insatser.
-            <br />
-            <strong>Mer plats för laget.</strong>
-          </p>
-          {admin ? (
+          <p className="nav-caption">ADMINISTRATION</p>
+          <nav>
+            <button className="nav-item" onClick={() => navigate('foraldrar')}>
+              <HeartHandshake size={20} />
+              Föräldrasida
+            </button>
+            {admin &&
+              adminPages.map((item) => (
+                <button
+                  key={item.id}
+                  className={`nav-item ${page === item.id ? 'active' : ''}`}
+                  aria-current={page === item.id ? 'page' : undefined}
+                  onClick={() => navigate(item.id)}
+                >
+                  <item.icon size={20} />
+                  {item.name}
+                  {page === item.id && <ChevronRight size={16} />}
+                </button>
+              ))}
+          </nav>
+          <div className="sidebar-bottom">
+            <p>
+              Tillsammans
+              <br />
+              <strong>runt planen.</strong>
+            </p>
             <button className="sidebar-login" onClick={leaveAdmin}>
               <LogOut size={17} />
               Lämna administrationen
             </button>
-          ) : (
-            <button className="sidebar-login" onClick={startAdmin}>
-              <LogIn size={17} />
-              För lagföräldrar
-            </button>
-          )}
-          <span className="sidebar-foot">Passlaget · föreningsliv tillsammans</span>
-        </div>
-      </aside>
-      {menu && <div className="sidebar-overlay" onClick={() => setMenu(false)} />}
+            <span className="sidebar-foot">Passlaget · föreningsliv tillsammans</span>
+          </div>
+        </aside>
+      )}
+      {!parentView && menu && <div className="sidebar-overlay" onClick={() => setMenu(false)} />}
       <div className="main-shell">
-        <header className="topbar">
-          <button
-            className="icon-button mobile-menu"
-            onClick={() => setMenu(true)}
-            aria-label="Öppna meny"
-          >
-            <Menu />
-          </button>
-          <div className="breadcrumbs">
-            {state?.team.clubName || 'Landvetter IS'}
-            <ChevronRight size={13} />
-            <span>
-              {page === 'foraldrar' ? 'Bemanning' : adminPages.find((p) => p.id === page)?.name}
-            </span>
-          </div>
-          <div className="topbar-actions">
-            {isDemo && <span className="demo-pill">Demo</span>}
-            {admin && (
-              <span className="admin-pill">
-                <ShieldCheck size={15} />
-                Administratör
-              </span>
-            )}
-            <button
-              className="icon-button refresh-button"
-              title="Hämta senaste uppgifterna"
-              aria-label="Hämta senaste uppgifterna"
-              onClick={() => refresh()}
+        {parentView ? (
+          <header className="public-masthead">
+            <a
+              href="#/foraldrar"
+              className="brand"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate('foraldrar');
+              }}
             >
-              <RefreshCw size={17} />
+              passlaget<span className="brand-dot">.</span>
+            </a>
+            <div className="public-team">
+              <strong>{state?.team.clubName || 'Landvetter IS'}</strong>
+              <span>{state?.team.name || 'P2018'}</span>
+            </div>
+          </header>
+        ) : (
+          <header className="topbar">
+            <button
+              className="icon-button mobile-menu"
+              onClick={() => setMenu(true)}
+              aria-label="Öppna meny"
+              aria-expanded={menu}
+              aria-controls="admin-navigation"
+            >
+              <Menu />
             </button>
-            {!admin && (
-              <button className="button ghost compact" onClick={startAdmin}>
-                Administration
-                <ArrowUpRight size={16} />
+            <div className="breadcrumbs">
+              <span className="breadcrumb-club">{state?.team.clubName || 'Landvetter IS'}</span>
+              <ChevronRight className="breadcrumb-separator" size={13} />
+              <span>{adminPages.find((p) => p.id === page)?.name}</span>
+            </div>
+            <div className="topbar-actions">
+              {isDemo && <span className="demo-pill">Demo</span>}
+              {admin && (
+                <span className="admin-pill">
+                  <ShieldCheck size={15} />
+                  Administratör
+                </span>
+              )}
+              <button
+                className="icon-button refresh-button"
+                title="Hämta senaste uppgifterna"
+                aria-label="Hämta senaste uppgifterna"
+                onClick={() => refresh()}
+              >
+                <RefreshCw size={17} />
               </button>
-            )}
-          </div>
-        </header>
+              {!admin && (
+                <button className="button ghost compact" onClick={startAdmin}>
+                  Administration
+                  <ArrowUpRight size={16} />
+                </button>
+              )}
+            </div>
+          </header>
+        )}
         {isDemo && (
           <div className="demo-banner">
             <span>
@@ -335,8 +354,19 @@ export default function App() {
           ) : null}
         </main>
         <footer className="page-footer">
-          <span>En insats för laget.</span>
-          <span>Passlaget</span>
+          <span>Tack för att ni hjälps åt.</span>
+          {parentView ? (
+            <div className="public-footer-actions">
+              <button className="text-button" onClick={() => refresh()}>
+                <RefreshCw size={15} /> Uppdatera schemat
+              </button>
+              <button className="text-button" onClick={startAdmin}>
+                Administration <ArrowUpRight size={15} />
+              </button>
+            </div>
+          ) : (
+            <span>Passlaget</span>
+          )}
         </footer>
       </div>
       {toast && (

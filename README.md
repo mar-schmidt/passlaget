@@ -28,6 +28,7 @@ En ansluten portal använder Supabase Auth för administration. Föräldrasidan 
 - Manuell bemanning och automatisk fördelning efter genomförda och reserverade pass. Varje pass väger lika; syskon delar saldo. Hänsyn till förhinder och överlappande uppdrag.
 - Arbetsutkast och separat publicerat schema. Förändrade uppdrag kräver ny bekräftelse. Samtidiga ändringar får en tydlig konflikt i stället för att skriva över varandra.
 - Enkel föräldrabekräftelse, byte av ansvarig vuxen, bytesförfrågningar och gemensamt schema.
+- Matchdagen: välj familj en gång och se det egna uppdraget tillsammans med evenemangets bemanning. Datumspalt, tydliga rollrader och samtliga familjepass samlade i en enkel lista. Administrationen har en separat meny.
 - En kalenderknapp för varje uppdrag: Google Kalender eller ICS för kompatibla kalenderappar. Kopian uppdateras inte automatiskt.
 - Förberett för frivilliga mejlpåminnelser, verifiering av mejladress, avregistrering och utskickskö. **Mejl är avstängt vid första driftsättningen och aktiveras senare.**
 - Historik, kontroll av importerade insatser, balans per familj och export.

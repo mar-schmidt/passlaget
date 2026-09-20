@@ -47,6 +47,13 @@ Den lokala versionen har tester för regler, gränssnitt, kalender, behörighets
 - Supabases information om **RLS utan policy** är avsiktlig för privata tabeller som bara serverrollen får använda. Öppna klientpolicyer ska inte läggas till för att tysta dessa meddelanden. [Förklaring](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
 - Varningen om **skydd mot läckta lösenord** kvarstår eftersom funktionen kräver Pro eller högre. Ingen uppgradering görs. Administratören har ett långt slumpmässigt lösenord och självregistrering är stängd. [Supabases lösenordsskydd](https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection).
 
+## Matchdagen – ny utformning 2026-09-20
+
+- Föräldrasidan utgår från ett publicerat evenemang. Familjens uppdrag visas före dagens rollgrupperade bemanning, med datumspalt, telefonlänkar och en separat ingång till administrationen.
+- Familjen väljs med en enda sökning. Nästa egna kommande pass styr första evenemanget; alla publicerade evenemang och familjepass går att nå, även över flera dagar och med egna uppgifter.
+- 114 automatiserade tester passerar (97 i Vitest och 17 för arbetare/återställning), samt SQL-kontrollen och produktionsbygget. Sex tillagda UI-fall täcker bland annat familjeval, flera pass/syskon, evenemangsbyte, externa lag, inställda pass och bytesförfrågan. Kalender- och administrationskontrollerna kvarstår.
+- Den visuella webbläsargranskningen är fortfarande begränsad enligt nedan. Mobilmenyn har kontrollerats i kod för liten skärmhöjd och tangentbordsåtkomst.
+
 ## Aktuell avgränsning
 
 Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera under bygget. Därför är visuell webbläsargranskning och faktiska mobilkalendrar ännu inte godkända. Komponenten testas separat med en simulerad DOM. Supabase-organisation, databas, Auth och Edge-funktion är driftsatta. Familjeimporten behöver granskas innan laget börjar använda portalen. Google-behörighet och verkliga utskick väntar enligt beslutet att ta mejl senare. Ingen mejlaktivering har gjorts.

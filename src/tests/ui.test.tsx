@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { PortalCommand, PortalState } from '../domain/model';
+import type { PortalCommand, PortalEvent, PortalState } from '../domain/model';
 import { applyCommand, publicState } from '../domain/logic';
 import App from '../App';
 import Admin from '../features/Admin';
@@ -146,9 +146,33 @@ function projected(state: PortalState): PortalState {
   return { ...publicState(state), history: [], audit: [], requests: [] };
 }
 
+function publishedEvent(
+  id: string,
+  title: string,
+  date: string,
+  familyId = 'family-one',
+): PortalEvent {
+  const event = structuredClone(fixture().events[0]);
+  event.id = id;
+  const details = event.published!;
+  details.title = title;
+  details.startDate = date;
+  details.endDate = date;
+  details.shifts[0].id = `${id}-shift`;
+  details.shifts[0].startsAt = `${date}T11:00:00+02:00`;
+  details.shifts[0].endsAt = `${date}T13:00:00+02:00`;
+  details.shifts[0].slots[0].id = `${id}-slot`;
+  details.shifts[0].slots[0].familyId = familyId;
+  event.draft = structuredClone(details);
+  return event;
+}
+
 let server: PortalState;
 beforeEach(() => {
   vi.clearAllMocks();
+  // Keep fixture passes upcoming even when this suite runs in a later calendar year.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2030-06-01T12:00:00Z'));
   localStorage.clear();
   history.replaceState(null, '', '/');
   server = fixture();
@@ -178,6 +202,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe('planning forms', () => {
@@ -335,6 +360,228 @@ describe('parent actions', () => {
   });
 });
 
+describe('matchday parent view', () => {
+  it('opens the shared schedule without a family and offers one way back to family selection', async () => {
+    const user = userEvent.setup();
+    render(
+      <Parents state={server} familyId="" setFamilyId={vi.fn()} mutate={vi.fn()} tell={vi.fn()} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Visa hela schemat' }));
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Öppet testsammandrag');
+    expect(screen.getByRole('region', { name: 'Dagens bemanning' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Familjens uppdrag' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Bekräfta passet' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Välj familj' }));
+    expect(screen.getByRole('searchbox', { name: 'Sök barn eller familj' })).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: 'Välj barn eller familj' })).toBeNull();
+  });
+
+  it('opens the next family assignment ahead of earlier team events and old family passes', () => {
+    const past = publishedEvent('past', 'Familjens gamla cup', '2030-05-01');
+    const otherFamily = publishedEvent(
+      'other-family',
+      'Lagets tidigare sammandrag',
+      '2030-06-05',
+      'family-two',
+    );
+    const later = publishedEvent('later', 'Familjens senare cup', '2030-07-01');
+    const cancelled = publishedEvent('cancelled', 'Inställd cup', '2030-06-02');
+    cancelled.cancelled = true;
+    server.events.push(later, past, otherFamily, cancelled);
+    render(
+      <Parents
+        state={server}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Öppet testsammandrag');
+    const own = screen.getByRole('region', { name: 'Familjens uppdrag' });
+    expect(within(own).getByRole('button', { name: 'Bekräfta passet' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: /Privat planeringsutkast/ })).toBeNull();
+    expect(screen.queryByText('Privat arbetsanteckning')).toBeNull();
+  });
+
+  it('finds a sibling through one family choice and keeps every assigned slot actionable', async () => {
+    const user = userEvent.setup();
+    server.children.push({
+      id: 'sibling',
+      name: 'Testsyskon',
+      familyId: 'family-one',
+      active: true,
+    });
+    const secondShift = structuredClone(server.events[0].published!.shifts[0]);
+    secondShift.id = 'shift-two';
+    secondShift.roleName = 'Löpare';
+    secondShift.startsAt = '2030-06-15T13:00:00+02:00';
+    secondShift.endsAt = '2030-06-15T15:00:00+02:00';
+    secondShift.slots[0].id = 'slot-two';
+    server.events[0].published!.shifts.push(secondShift);
+    const setFamilyId = vi.fn();
+    const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'public'));
+    const props = { state: server, setFamilyId, mutate, tell: vi.fn() };
+    const view = render(<Parents {...props} familyId="" />);
+    await user.type(screen.getByRole('searchbox', { name: 'Sök barn eller familj' }), 'Testsyskon');
+    expect(screen.queryByRole('combobox', { name: 'Välj barn eller familj' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Testbarn Ett & Testsyskon' }));
+    expect(setFamilyId).toHaveBeenCalledWith('family-one');
+    view.rerender(<Parents {...props} familyId="family-one" />);
+    const own = screen.getByRole('region', { name: 'Familjens uppdrag' });
+    expect(within(own).getAllByRole('button', { name: 'Bekräfta passet' })).toHaveLength(2);
+    for (const index of [0, 1]) {
+      await user.click(within(own).getAllByRole('button', { name: 'Bekräfta passet' })[index]);
+      const dialog = screen.getByRole('dialog', { name: 'Bekräfta familjens pass' });
+      await user.selectOptions(
+        within(dialog).getByRole('combobox', { name: 'Vem kommer?' }),
+        index ? 'adult-two' : 'adult-one',
+      );
+      await user.click(within(dialog).getByRole('checkbox'));
+      await user.click(within(dialog).getByRole('button', { name: 'Bekräfta passet' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    }
+    expect(mutate.mock.calls.map(([command]) => command)).toEqual([
+      expect.objectContaining({
+        type: 'confirm',
+        familyId: 'family-one',
+        slotId: 'slot-one',
+        adultId: 'adult-one',
+      }),
+      expect.objectContaining({
+        type: 'confirm',
+        familyId: 'family-one',
+        slotId: 'slot-two',
+        adultId: 'adult-two',
+      }),
+    ]);
+    await user.click(screen.getByRole('button', { name: 'Byt familj' }));
+    expect(screen.getByRole('searchbox', { name: 'Sök barn eller familj' })).toBeTruthy();
+  });
+
+  it('switches events without losing custom roles, external teams, instructions or phone contacts', async () => {
+    const user = userEvent.setup();
+    const halloween = publishedEvent('halloween', 'Halloween med laget', '2030-10-31');
+    const ownShift = halloween.published!.shifts[0];
+    ownShift.roleId = 'pumpkins';
+    ownShift.roleName = 'Pumpaverkstad';
+    ownShift.instructions = 'Hjälp barnen med pyntet.';
+    const contactShift = structuredClone(ownShift);
+    contactShift.id = 'halloween-contact';
+    contactShift.roleName = 'Entrévärd';
+    contactShift.slots[0] = {
+      ...contactShift.slots[0],
+      id: 'contact-slot',
+      familyId: 'family-two',
+      status: 'confirmed',
+      adultName: 'Kontakt Testvuxen',
+      adultPhone: '+46 70 000 00 77',
+    };
+    halloween.published!.shifts.push(contactShift, {
+      ...structuredClone(ownShift),
+      id: 'external-kiosk',
+      roleName: 'Kiosk',
+      externalTeam: 'Grannlaget P2019',
+      slots: [],
+    });
+    server.events.push(halloween);
+    render(
+      <Parents
+        state={server}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Evenemang' }), 'halloween');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Halloween med laget');
+    const own = screen.getByRole('region', { name: 'Familjens uppdrag' });
+    expect(within(own).getByRole('heading', { name: 'Pumpaverkstad' })).toBeTruthy();
+    expect(within(own).getByRole('button', { name: 'Bekräfta passet' })).toBeTruthy();
+    const roster = screen.getByRole('region', { name: 'Dagens bemanning' });
+    expect(within(roster).getByText('Grannlaget P2019').closest('p')?.textContent).toBe(
+      'Bemannas av Grannlaget P2019',
+    );
+    expect(within(roster).getByText('Kontakt Testvuxen')).toBeTruthy();
+    expect(
+      within(roster)
+        .getByRole('link', { name: /\+46 70 000 00 77/ })
+        .getAttribute('href'),
+    ).toBe('tel:+46700000077');
+    const instructions = within(roster).getAllByText('Instruktioner')[0];
+    await user.click(instructions);
+    expect(instructions.closest('details')?.open).toBe(true);
+    expect(within(roster).getAllByText('Hjälp barnen med pyntet.').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('option', { name: /Privat planeringsutkast/ })).toBeNull();
+  });
+
+  it('shows cancelled events and assignments without offering confirmation or calendar actions', async () => {
+    const user = userEvent.setup();
+    server.events[0].published!.shifts[0].slots[0].status = 'cancelled';
+    const cancelled = publishedEvent('cancelled', 'Inställd familjedag', '2030-06-20');
+    cancelled.cancelled = true;
+    server.events.push(cancelled);
+    render(
+      <Parents
+        state={server}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    for (const eventId of ['event-one', 'cancelled']) {
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Evenemang' }), eventId);
+      expect(screen.queryByRole('button', { name: 'Bekräfta passet' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Visa / ändra ansvarig' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Lägg till i kalender' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Jag behöver hjälp att byta' })).toBeNull();
+      expect(screen.getAllByText('Inställt').length).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps requests subject to organiser approval instead of changing the assignment', async () => {
+    const user = userEvent.setup();
+    const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'public'));
+    const tell = vi.fn();
+    render(
+      <Parents
+        state={server}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={mutate}
+        tell={tell}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Jag behöver hjälp att byta' }));
+    const dialog = screen.getByRole('dialog', { name: 'Be om hjälp med passet' });
+    expect(
+      within(dialog).getByText('Du står kvar på passet tills lagföräldern har godkänt en ändring.'),
+    ).toBeTruthy();
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'Meddelande till lagföräldern' }),
+      'Vi behöver byta till eftermiddagen.',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Skicka förfrågan' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(mutate).toHaveBeenCalledWith({
+      type: 'request_change',
+      eventId: 'event-one',
+      slotId: 'slot-one',
+      revision: 1,
+      familyId: 'family-one',
+      message: 'Vi behöver byta till eftermiddagen.',
+    });
+    expect(tell).toHaveBeenCalledWith(expect.stringMatching(/Nuvarande schema gäller tills/));
+    expect(
+      within(screen.getByRole('region', { name: 'Familjens uppdrag' })).getByRole('button', {
+        name: 'Bekräfta passet',
+      }),
+    ).toBeTruthy();
+  });
+});
+
 describe('administration across public actions', () => {
   it('reloads full admin data after a public confirmation instead of losing private drafts', async () => {
     const user = userEvent.setup();
@@ -346,10 +593,11 @@ describe('administration across public actions', () => {
       expect(screen.getByRole('heading', { name: 'Privat planeringsutkast' })).toBeTruthy(),
     );
     await user.click(screen.getByRole('button', { name: 'Föräldrasida' }));
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Välj barn eller familj' }),
-      'family-one',
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Sök barn eller familj' }),
+      'Testbarn Ett',
     );
+    await user.click(screen.getByRole('button', { name: 'Testbarn Ett' }));
     const readsBefore = client.readPortal.mock.calls.filter((args) => args[0] === true).length;
     await user.click(screen.getByRole('button', { name: 'Bekräfta passet' }));
     const dialog = screen.getByRole('dialog');
@@ -360,6 +608,7 @@ describe('administration across public actions', () => {
     expect(client.readPortal.mock.calls.filter((args) => args[0] === true).length).toBeGreaterThan(
       readsBefore,
     );
+    await user.click(screen.getByRole('button', { name: 'Administration' }));
     await user.click(screen.getByRole('button', { name: 'Evenemang' }));
     expect(screen.getByRole('heading', { name: 'Privat planeringsutkast' })).toBeTruthy();
     await user.click(screen.getByRole('button', { name: 'Rättvis fördelning' }));
