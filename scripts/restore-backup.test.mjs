@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -370,10 +371,12 @@ test(
     await db.exec(
       'create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text);',
     );
-    const migration = fileURLToPath(
-      new URL('../supabase/migrations/20260920182020_portal_backend.sql', import.meta.url),
-    );
-    await db.exec(readFileSync(migration, 'utf8'));
+    const migrations = new URL('../supabase/migrations/', import.meta.url);
+    for (const file of readdirSync(migrations)
+      .filter((name) => name.endsWith('.sql'))
+      .sort()) {
+      await db.exec(readFileSync(new URL(file, migrations), 'utf8'));
+    }
     const backup = fixture(),
       current = structuredClone(backup.state);
     current.version = 19;

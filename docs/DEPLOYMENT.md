@@ -2,9 +2,21 @@
 
 Budget: **0 kr**. Använd ett publikt repository på GitHub Free, en separat organisation med **Supabase Free**, och aktivera mejl först senare när avsändare har valts. Aktivera ingen betalplan eller provperiod som övergår i betalning.
 
+## Aktuell driftsättning
+
+- Portal: https://mar-schmidt.github.io/passlaget/
+- Supabase: **Passlaget**, organisation **Passlaget**, projekt `erddjmgwlwdcqtunlepa`, Stockholm (`eu-north-1`), **Free / 0 kr per månad** vid skapandet 2026-09-20.
+- Lag: Landvetter IS P2018 (`landvetter-p2018`), med sex grunduppdrag och ett administratörskonto. Familjer och historik har inte importerats ännu.
+- Serverfunktionen `portal` är publicerad. Självregistrering och anonym Auth-inloggning är avstängda; de öppna föräldraåtgärderna kräver inget konto.
+- Både `MAIL_ENABLED` och `VITE_MAIL_ENABLED` är `false`. Ingen mejlarbetare är installerad.
+- GitHub Pages använder `gh-pages`. Repositoryts publika anslutningsvariabler är konfigurerade; Actions-mallen väntar fortfarande på `workflow`-behörighet.
+- `.env.production.local` konfigurerar produktionsbygget på den här Macen. Vanlig lokal utveckling visar fortsatt demo. Privata inloggningsuppgifter och driftfiler ligger under `.local/supabase-production/`, som inte följer med Git eller webbbygget.
+
+Supabase CLI är inloggat lokalt. Projektet är ännu inte länkat för direkt databasanslutning; vid underhåll via Management API används alltid `--project-ref erddjmgwlwdcqtunlepa`, och för SQL även `--linked`. Kör inte kommandon utan att kontrollera målet. Webbbygget publiceras separat från serverfunktionen.
+
 ## 1. Skapa databasen
 
-1. Skapa organisationen **Passlaget** hos Supabase och välj Free. Skapa ett projekt i en tillgänglig EU-region. Organisationen har skapats av kontoägaren; anslutningens åtkomst behöver uppdateras innan projektet kan sättas upp.
+1. Skapa organisationen **Passlaget** hos Supabase och välj Free. Skapa ett projekt i en tillgänglig EU-region. Den nuvarande installationen är redan skapad enligt uppgifterna ovan; stegen här används vid en ny installation.
 2. Anslut med Supabase CLI och kontrollera projektreferensen innan migrationen körs. Ersätt platshållare, använd inga hemligheter i källkod.
 
 ```sh
@@ -15,6 +27,7 @@ npx supabase db push
 
 3. Kör `supabase/bootstrap.example.sql` i projektets SQL-editor. Det skapar ett tomt lag med grunduppdrag. Samma skript ersätter aldrig ett befintligt lag.
 4. Skapa administratören under Authentication → Users och koppla användarens UUID till laget enligt kommentaren i bootstrapfilen. Inget publikt registreringsflöde behövs. Stäng av nya registreringar i Auth-inställningarna.
+   För CLI-konfiguration: behåll `[auth].enable_signup=false`, men använd `[auth.email].enable_signup=true` för att låta befintliga konton logga in. Den senare inställningen styr även e-postleverantörens inloggning; den globala spärren hindrar nya konton.
 5. Ange portalens slutliga adress som Auth Site URL och tillåten redirect, exempelvis `https://mar-schmidt.github.io/passlaget/`. Den måste matcha `APP_URL` exakt.
 
 ## 2. Koppla serverfunktionen
@@ -32,7 +45,7 @@ Kör Supabase Security/Performance Advisors och anslutningskontrollerna i [ACCEP
 
 ## 3. Publicera på GitHub Pages
 
-Den första demonstrationen publiceras manuellt från grenen `gh-pages`. Nuvarande GitHub-inloggning nekade uppladdning av `.github/workflows/pages.yml` eftersom dess `workflow`-behörighet saknas. Definitionen finns därför redo i `deployment/pages.yml`. När kontoägaren har gett den rättigheten flyttas filen till `.github/workflows/pages.yml` och GitHub Pages ändras från grenen `gh-pages` till **GitHub Actions**.
+Portalen publiceras manuellt från grenen `gh-pages`. Nuvarande GitHub-inloggning nekade uppladdning av `.github/workflows/pages.yml` eftersom dess `workflow`-behörighet saknas. Definitionen finns därför redo i `deployment/pages.yml`. När kontoägaren har gett den rättigheten flyttas filen till `.github/workflows/pages.yml` och GitHub Pages ändras från grenen `gh-pages` till **GitHub Actions**.
 
 Det medföljande arbetsflödet bygger enbart `dist/`. Det laddar inte upp `.local/`, PDF-filer, serverhemligheter eller databasen. Backend publiceras separat.
 

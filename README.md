@@ -2,9 +2,11 @@
 
 **Små insatser. Mer plats för laget.**
 
-[Öppna demonstrationen](https://mar-schmidt.github.io/passlaget/) · [GitHub-projekt](https://github.com/mar-schmidt/passlaget)
+[Öppna portalen](https://mar-schmidt.github.io/passlaget/) · [GitHub-projekt](https://github.com/mar-schmidt/passlaget)
 
 En svensk, mobilanpassad portal för föreningens bemanning. Planera cuper, caféveckor och egna evenemang, fördela uppdrag mellan familjer och låt föräldrar bekräfta vem som kommer via en gemensam länk.
+
+Den publicerade portalen är ansluten till Supabase Free i Stockholm. Administration kräver inloggning. Laget är skapat med grunduppdrag; familjeregistret och historiken väntar på granskning av importunderlaget. Mejl är avstängt.
 
 ## Prova lokalt
 
@@ -39,7 +41,7 @@ Portalen använder **GitHub Pages + Supabase Free**. Ingen köpt domän eller be
 3. Granska och importera det privata underlaget enligt [importguiden](docs/IMPORT.md).
 4. Genomför [kontrollerna före pilot](docs/ACCEPTANCE.md), inklusive faktiska mobilkalendrar. Utskick kontrolleras först när mejl ska aktiveras.
 
-Den första demonstrationen publiceras manuellt från `gh-pages`. Det automatiska publiceringsflödet finns färdigt i `deployment/pages.yml`; nuvarande GitHub-inloggning saknar rättigheten att aktivera workflow-filer. Se driftguiden för aktivering.
+Portalen publiceras manuellt från `gh-pages`. Det automatiska publiceringsflödet finns färdigt i `deployment/pages.yml`; nuvarande GitHub-inloggning saknar rättigheten att aktivera workflow-filer. Se driftguiden för aktivering.
 
 Källkod och demo får ligga publikt. **Käll-PDF, riktiga familjer, importfiler, säkerhetskopior och hemligheter får aldrig läggas i repositoryt eller webbbygget.** Lokala privata filer ligger i `.local/`, som ignoreras av Git. Frontendens `VITE_`-värden blir offentliga; använd bara projektadress och publicerbar nyckel där.
 
