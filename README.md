@@ -2,7 +2,7 @@
 
 **Små insatser. Mer plats för laget.**
 
-[Öppna portalen](https://mar-schmidt.github.io/passlaget/) · [GitHub-projekt](https://github.com/mar-schmidt/passlaget)
+[GitHub-projekt](https://github.com/mar-schmidt/passlaget)
 
 En svensk, mobilanpassad portal för föreningens bemanning. Planera cuper, caféveckor och egna evenemang, fördela uppdrag mellan familjer och låt föräldrar bekräfta vem som kommer via en gemensam länk.
 
