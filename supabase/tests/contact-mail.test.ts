@@ -161,15 +161,30 @@ describe('adult email and confirmation reminders', () => {
       ),
     ).toHaveLength(1);
   });
-  it('confirmation schedules reminders but does not send an immediate assignment notice', async () => {
+  it('confirmation saves contact information without creating reminders or an immediate assignment notice', async () => {
     const before = fixture(),
       command = confirmation(before),
       after = applyCommand(before, command, 'public', now);
     const jobs = await buildContactMailJobs(before, after, command, now);
-    expect(jobs.some((j) => j.kind === 'reminder' && j.recipient === 'updated@example.test')).toBe(
-      true,
-    );
-    expect(jobs.every((j) => j.kind === 'reminder')).toBe(true);
+    expect(jobs).toHaveLength(0);
+  });
+  it('confirming one family duty preserves automatic reminders only for their other pending duty', async () => {
+    const before = fixture();
+    const shift = before.events[0].published!.shifts[0];
+    before.events[0].published!.shifts.push({
+      ...structuredClone(shift),
+      id: 'other-shift',
+      startsAt: shift.endsAt,
+      endsAt: new Date(Date.parse(shift.endsAt) + 3600000).toISOString(),
+      slots: [{ ...shift.slots[0], id: 'other-slot' }],
+    });
+    const command = confirmation(before);
+    const after = applyCommand(before, command, 'public', now);
+    const jobs = await buildContactMailJobs(before, after, command, now);
+    expect(jobs.length).toBeGreaterThan(0);
+    expect(
+      jobs.every((j) => j.kind === 'reminder' && j.payload.entries[0].slotId === 'other-slot'),
+    ).toBe(true);
   });
   it('queues only the requested missing confirmation and suppresses it after a response, reassignment or contact change', async () => {
     const before = fixture(),

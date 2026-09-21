@@ -2502,7 +2502,7 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
             </label>
             {activeMail && (
               <fieldset className="reminder-options">
-                <legend>Påminn före passet</legend>
+                <legend>Påminn om obekräftade pass</legend>
                 {[7, 3, 1].map((day) => (
                   <label key={day} className="check-label">
                     <input
@@ -2557,8 +2557,9 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
                   under Barn & föräldrar. Adressen visas inte för andra familjer.
                 </p>
                 <p>
-                  Utskick läggs i kö när uppdrag publiceras eller ändras. Påminnelser skickas bara
-                  om uppdraget fortfarande är aktuellt.
+                  Utskick läggs i kö när uppdrag publiceras eller ändras. Automatiska påminnelser
+                  skickas bara om passet fortfarande saknar bekräftelse. Ett bekräftat pass får
+                  inga fler påminnelser.
                 </p>
                 <p>
                   Under Svar & uppföljning kan du påminna om ett enskilt pass som saknar

@@ -76,6 +76,57 @@ const subscription: Subscription = {
 };
 
 describe('mail queue planning', () => {
+  it('schedules automatic reminders only for pending duties in a mixed family schedule', async () => {
+    const after = state();
+    after.events[0].published!.shifts[0].slots.push({
+      id: 'confirmed-slot',
+      familyId: 'f',
+      locked: false,
+      revision: 1,
+      status: 'confirmed',
+      confirmedRevision: 1,
+    });
+    const jobs = await buildMailJobs({ ...after, events: [] }, after, [subscription], now);
+    const reminders = jobs.filter((job) => job.kind === 'reminder');
+    expect(reminders).toHaveLength(2);
+    expect(reminders.map((job) => job.dueAt)).toEqual([
+      '2026-10-03T09:00:00.000Z',
+      '2026-10-09T09:00:00.000Z',
+    ]);
+    expect(reminders.every((job) => job.payload.entries[0].slotId === 'slot')).toBe(true);
+    expect(jobs.find((job) => job.kind === 'assignment')!.payload.entries).toHaveLength(2);
+  });
+  it('suppresses an already queued automatic reminder after confirmation without changing its recipient or revision', async () => {
+    const pending = state();
+    const job = (await buildMailJobs(pending, pending, [subscription], now))[0];
+    expect(validMailEntries(job.kind, job.payload, pending, subscription, now)).toHaveLength(1);
+    const confirmed = structuredClone(pending);
+    confirmed.events[0].published!.shifts[0].slots[0].status = 'confirmed';
+    confirmed.events[0].published!.shifts[0].slots[0].confirmedRevision = 1;
+    expect(validMailEntries(job.kind, job.payload, confirmed, subscription, now)).toHaveLength(0);
+    expect(await buildMailJobs(pending, confirmed, [subscription], now)).toHaveLength(0);
+    expect(validMailEntries('assignment', job.payload, confirmed, subscription, now)).toHaveLength(
+      1,
+    );
+  });
+  it('resumes automatic reminders when a changed duty requires a new confirmation', async () => {
+    const before = state();
+    before.events[0].published!.shifts[0].slots[0].status = 'confirmed';
+    before.events[0].published!.shifts[0].slots[0].confirmedRevision = 1;
+    const after = structuredClone(before);
+    after.version++;
+    const shift = after.events[0].published!.shifts[0];
+    shift.startsAt = '2026-10-10T10:00:00.000Z';
+    shift.slots[0].status = 'pending';
+    shift.slots[0].revision = 2;
+    delete shift.slots[0].confirmedRevision;
+    const jobs = await buildMailJobs(before, after, [subscription], now);
+    expect(jobs.filter((job) => job.kind === 'reminder')).toHaveLength(2);
+    expect(jobs.filter((job) => job.kind === 'changed')).toHaveLength(1);
+    for (const job of jobs) {
+      expect(validMailEntries(job.kind, job.payload, after, subscription, now)).toHaveLength(1);
+    }
+  });
   it('never mails draft changes; reminder dedupe remains stable across unrelated edits', async () => {
     const before = state(),
       after = structuredClone(before);

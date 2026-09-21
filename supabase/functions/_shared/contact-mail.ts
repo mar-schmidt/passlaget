@@ -58,8 +58,8 @@ export async function buildContactMailJobs(
   const old = await contacts(before);
   const result: MailJob[] = [];
   for (const recipient of recipients) {
-    // Confirmation saves the address and schedules future reminders, without sending an
-    // immediate assignment email as a side effect of the parent's own confirmation.
+    // Confirmation saves the address without an immediate assignment email.
+    // Only other, still-pending duties may retain future reminders.
     const basis =
       command.type === 'confirm'
         ? after

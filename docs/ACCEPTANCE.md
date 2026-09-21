@@ -68,3 +68,9 @@ Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera und
 - Påminn ett framtida, obekräftat pass under Svar & uppföljning. Saknad adress och avstängd avsändare ger tydligt besked, aldrig falsk leveransstatus.
 - Bekräfta eller flytta passet före worker-körningen: gammal påminnelse undertrycks. Ny adress, avslutad uppgift och återkallad kontakt kontrolleras vid sändning.
 - Bara inloggad lagadministratör får begära påminnelse. Dubbelklick och gammal schemaversion ska inte skapa dubbla utskick.
+
+## Automatiska påminnelser endast vid saknad bekräftelse 2026-09-21
+
+- Bekräftade pass får inga nya automatiska påminnelser. En redan köad påminnelse stoppas om passet har bekräftats när utskicket förbereds, även för äldre köposter och prenumerationer.
+- Andra obekräftade pass inom samma familj behåller sina påminnelser. Ändrade pass som kräver en ny bekräftelse kan påminnas igen.
+- 139 tester passerar (121 i Vitest och 18 för arbetare/återställning), samt SQL-kontrollerna och produktionsbygget. Regressionstester täcker både skapande och förberedelse av automatiska och manuella påminnelser samt familjer med flera pass.

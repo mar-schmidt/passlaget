@@ -10,7 +10,9 @@ Koden i repositoryt gör inga utskick eller kontoändringar av sig själv. Aktiv
 
 Föräldern anger alltid mejladress när ett pass bekräftas. Adressen sparas på vald vuxen; en annan namngiven vuxen läggs till i familjens register. Den är privat och ingår varken i föräldrasidans API-svar eller kalenderfiler. Administratören kan lägga till eller rätta adressen under **Barn & föräldrar**. För den första tilldelningsnotisen behöver adressen finnas redan före publiceringen, eller läggas till av administratören efteråt.
 
-Publicerad tilldelning till en familj meddelar familjens aktiva vuxna som har mejladress. Är en viss vuxen vald går mejlet till den vuxna. Samma adress inom samma familj får ett meddelande, även om två vuxna delar inkorg. En förälders bekräftelse skickar ingen omedelbar tilldelningsnotis till samma person; den sparar kontakten och planerar framtida påminnelser.
+Publicerad tilldelning till en familj meddelar familjens aktiva vuxna som har mejladress. Är en viss vuxen vald går mejlet till den vuxna. Samma adress inom samma familj får ett meddelande, även om två vuxna delar inkorg. En förälders bekräftelse sparar kontakten utan att skicka en omedelbar tilldelningsnotis till samma person.
+
+Automatiska påminnelser före passet gäller endast publicerade uppdrag som fortfarande saknar bekräftelse. Bekräftade pass får inga nya påminnelser, och redan köade påminnelser stoppas vid kontrollen före utskick. Har samma familj andra obekräftade pass kan de fortfarande få påminnelser för dessa. Om ett ändrat pass kräver en ny bekräftelse gäller påminnelserna igen för den nya versionen. Information om ändring eller avbokning skickas även för tidigare bekräftade pass.
 
 Under **Evenemang → Svar & uppföljning** kan administratören trycka **Påminn via mejl** för ett publicerat, framtida pass utan svar. Adress måste finnas och utskick måste vara aktiverade. Schemat och köposten sparas atomiskt. Nytt försök till samma pass begränsas i tio minuter. Strax före utskick kontrolleras på nytt att svaret fortfarande saknas, att uppdragets uppgifter stämmer och att mottagaradressen fortfarande gäller.
 

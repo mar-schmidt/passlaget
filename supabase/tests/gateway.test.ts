@@ -247,7 +247,7 @@ describe('email-aware participation gateway', () => {
       ),
     ).toBe(true);
   });
-  it('stores the entered email and routine reminders together without exposing the address in the response', async () => {
+  it('stores the entered email without reminders for the confirmed duty or exposing the address', async () => {
     const { event, slot, adult } = upcoming();
     const response = await handle(
       request({
@@ -274,49 +274,63 @@ describe('email-aware participation gateway', () => {
       'private@example.test',
     );
     expect(
-      commit.jobs.some((j: any) => j.recipient === 'private@example.test' && j.kind === 'reminder'),
+      commit.jobs.some(
+        (j: any) =>
+          j.kind === 'reminder' &&
+          j.payload.entries.some(
+            (entry: any) => entry.eventId === event.id && entry.slotId === slot.id,
+          ),
+      ),
+    ).toBe(false);
+    expect(
+      commit.jobs
+        .filter((j: any) => j.kind === 'reminder')
+        .every((j: any) => j.payload.entries.every((entry: any) => entry.status === 'pending')),
     ).toBe(true);
     expect(commit.jobs.some((j: any) => j.kind === 'assignment')).toBe(false);
   });
-  it('prepares a direct contact reminder without a legacy subscription and suppresses it after confirmation', async () => {
-    const { event, slot, adult } = upcoming();
-    const payload = {
-      contact: { familyId: slot.familyId, adultIds: [adult.id] },
-      confirmationOnly: true,
-      entries: entries(current).filter((e) => e.eventId === event.id && e.slotId === slot.id),
-    };
-    const normal = mock.rpc.getMockImplementation()!;
-    mock.rpc.mockImplementation(async (name, args) =>
-      args.p_op === 'mail_prepare'
-        ? {
-            data: {
-              mail: {
-                id: 'b092b4b3-8493-48c2-bfde-01a7db3c91f1',
-                kind: 'reminder',
-                recipient: 'parent@example.test',
-                subject: 'Bekräfta passet',
-                payload,
+  it.each([true, false])(
+    'prepares a contact reminder and suppresses it after confirmation (manual: %s)',
+    async (confirmationOnly) => {
+      const { event, slot, adult } = upcoming();
+      const payload = {
+        contact: { familyId: slot.familyId, adultIds: [adult.id] },
+        ...(confirmationOnly ? { confirmationOnly: true } : { reminderDays: 7 }),
+        entries: entries(current).filter((e) => e.eventId === event.id && e.slotId === slot.id),
+      };
+      const normal = mock.rpc.getMockImplementation()!;
+      mock.rpc.mockImplementation(async (name, args) =>
+        args.p_op === 'mail_prepare'
+          ? {
+              data: {
+                mail: {
+                  id: 'b092b4b3-8493-48c2-bfde-01a7db3c91f1',
+                  kind: 'reminder',
+                  recipient: 'parent@example.test',
+                  subject: 'Bekräfta passet',
+                  payload,
+                },
+                subscription: null,
+                state: current,
               },
-              subscription: null,
-              state: current,
-            },
-            error: null,
-          }
-        : normal(name, args),
-    );
-    const body = {
-      action: 'mail_prepare',
-      workerSecret: settings.MAIL_WORKER_SECRET,
-      id: 'b092b4b3-8493-48c2-bfde-01a7db3c91f1',
-      leaseToken: '57d5b7e9-a1c9-498e-aafd-3c58e3e8cf8c',
-    };
-    const response = await handle(request(body));
-    expect(response.status).toBe(200);
-    const data = await response.json();
-    expect(data.message.to).toBe('parent@example.test');
-    expect(data.message.text).toContain('Vi saknar din bekräftelse');
-    slot.status = 'confirmed';
-    expect(await (await handle(request(body))).json()).toEqual({ skip: true });
-    expect(calls('mail_suppress')).toHaveLength(1);
-  });
+              error: null,
+            }
+          : normal(name, args),
+      );
+      const body = {
+        action: 'mail_prepare',
+        workerSecret: settings.MAIL_WORKER_SECRET,
+        id: 'b092b4b3-8493-48c2-bfde-01a7db3c91f1',
+        leaseToken: '57d5b7e9-a1c9-498e-aafd-3c58e3e8cf8c',
+      };
+      const response = await handle(request(body));
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(data.message.to).toBe('parent@example.test');
+      if (confirmationOnly) expect(data.message.text).toContain('Vi saknar din bekräftelse');
+      slot.status = 'confirmed';
+      expect(await (await handle(request(body))).json()).toEqual({ skip: true });
+      expect(calls('mail_suppress')).toHaveLength(1);
+    },
+  );
 });

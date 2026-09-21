@@ -130,6 +130,7 @@ export async function buildMailJobs(
       const prior = oldByKey.get(key(entry));
       if (!prior || !active(prior) || !matches(subscription, prior)) groups.assignment.push(entry);
       else if (fingerprint(prior) !== fingerprint(entry)) groups.changed.push(entry);
+      if (entry.status !== 'pending') continue;
       for (const days of after.team.reminderDays) {
         const dueMs = Date.parse(entry.startsAt) - days * 86400000;
         if (!(dueMs > nowMs)) continue; // Never manufacture already missed routine reminders.
@@ -194,6 +195,8 @@ export function validMailEntries(
     )
       return false;
     const next = current.get(key(entry));
+    // Recheck live status, including jobs queued before the parent confirmed.
+    if (kind === 'reminder' && next?.status !== 'pending') return false;
     if (kind === 'cancelled') return !next || next.cancelled || !matches(subscription, next);
     return Boolean(
       next &&
