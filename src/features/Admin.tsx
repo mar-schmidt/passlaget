@@ -1,4 +1,4 @@
-import SportAdminPanel from './SportAdmin';
+import SportAdminPanel, { type Integration } from './SportAdmin';
 import { attendanceEligible, attendanceWarnings } from '../domain/logic';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -593,8 +593,45 @@ function EventEditor({
   const [explanations, setExplanations] = useState<string[]>([]);
   const [tab, setTab] = useState<'details' | 'shifts'>(initial.draft.title ? 'shifts' : 'details');
   const baseVersion = useRef(state.version);
+  const [sportadmin, setSportadmin] = useState<Integration>();
+  const [sportadminError, setSportadminError] = useState('');
+  const [sportadminLoading, setSportadminLoading] = useState(!isDemo);
+  const [activityId, setActivityId] = useState<number | null | undefined>(null);
+  const [savedActivityId, setSavedActivityId] = useState<number | null | undefined>(null);
+  const [lookupAttempt, setLookupAttempt] = useState(0);
+  useEffect(() => {
+    if (isDemo) return;
+    let active = true;
+    setSportadminLoading(true);
+    setSportadminError('');
+    api<{ integration: Integration }>({ action: 'sportadmin', operation: 'status' })
+      .then((result) => {
+        if (!active) return;
+        if (!result?.integration) throw new Error('SportAdmin kunde inte hämtas.');
+        setSportadmin(result.integration);
+        const linkedId =
+          result.integration.links[initial.id] ?? (initial.attendance ? undefined : null);
+        setActivityId(linkedId);
+        setSavedActivityId(linkedId);
+      })
+      .catch(() => {
+        if (active)
+          setSportadminError(
+            'SportAdmin kunde inte hämtas. Befintlig koppling behålls när du sparar.',
+          );
+      })
+      .finally(() => {
+        if (active) setSportadminLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [initial.id, lookupAttempt]);
+  const linkChanged = activityId !== savedActivityId;
+  const selectionEvent =
+    linkChanged && activityId === null ? { ...event, attendance: undefined } : event;
   const details = event.draft;
-  const dirty = JSON.stringify(event) !== saved;
+  const dirty = JSON.stringify(event) !== saved || linkChanged;
   const currentCount = eventCounts(event);
   const live = state.events.find((e) => e.id === event.id);
   const patch = (value: Partial<EventDetails>) =>
@@ -657,7 +694,15 @@ function EventEditor({
         );
       if (!details.title.trim())
         throw new Error('Ange ett namn på evenemanget under Grunduppgifter.');
-      let next = await mutate({ type: 'save_event', event }, baseVersion.current);
+      let next = await mutate(
+        {
+          type: 'save_event',
+          event,
+          ...(linkChanged ? { sportadminActivityId: activityId } : {}),
+        },
+        baseVersion.current,
+      );
+      setSavedActivityId(activityId);
       baseVersion.current = next.version;
       let updated = next.events.find((e) => e.id === event.id)!;
       setEvent(structuredClone(updated));
@@ -711,6 +756,65 @@ function EventEditor({
         </span>
       </div>
       <fieldset disabled={!!busy} className="modal-body event-editor editor-fieldset">
+        <div className="event-sportadmin-link">
+          <label>
+            Koppla till SportAdmin
+            <select
+              value={activityId === undefined ? 'keep' : (activityId ?? '')}
+              disabled={sportadminLoading || !sportadmin || !!sportadminError}
+              onChange={(e) =>
+                setActivityId(
+                  e.target.value === 'keep'
+                    ? undefined
+                    : e.target.value
+                      ? Number(e.target.value)
+                      : null,
+                )
+              }
+            >
+              <option value="">
+                {sportadminLoading ? 'Hämtar aktiviteter…' : 'Ingen koppling'}
+              </option>
+              {savedActivityId === undefined && (
+                <option value="keep">Behåll befintlig koppling – behöver återställas</option>
+              )}
+              {typeof savedActivityId === 'number' &&
+                !sportadmin?.activities.some((a) => a.id === savedActivityId) && (
+                  <option value={savedActivityId}>
+                    {initial.attendance?.title || 'Nuvarande aktivitet'}
+                  </option>
+                )}
+              {sportadmin?.activities.map((a) => (
+                <option key={a.id} value={a.id} disabled={!sportadmin.connected}>
+                  {dateLabel(a.startsAt)} · {a.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="hint">
+            {sportadminError ||
+              (isDemo
+                ? 'Anslut SportAdmin i den riktiga portalen för att välja aktivitet.'
+                : sportadmin && !sportadmin.connected
+                  ? 'Anslut laget under SportAdmin för att välja en aktivitet. Du kan fortfarande ta bort en befintlig koppling.'
+                  : 'Välj aktiviteten som barnen ska delta i. Bara familjer med ett aktivt barn som svarat ja kan få nya pass. Kopplingen sparas med evenemanget.')}
+          </p>
+          {sportadminError && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => setLookupAttempt((n) => n + 1)}
+            >
+              Försök igen
+            </button>
+          )}
+          {linkChanged && activityId !== null && (
+            <p className="hint">
+              Spara kopplingen innan du väljer familjer manuellt. Du kan också trycka på Fördela
+              lediga pass för att spara och fördela direkt.
+            </p>
+          )}
+        </div>
         {tab === 'details' && (
           <div className="form-stack">
             <label>
@@ -1066,13 +1170,16 @@ function EventEditor({
                           <span className="sr-only">Familj för plats {i + 1}</span>
                           <select
                             value={slot.familyId || ''}
+                            disabled={linkChanged && activityId !== null && !slot.familyId}
                             onChange={(e) => assign(shift, i, e.target.value)}
                           >
                             <option value="">Välj familj · ledig plats</option>
                             {state.families
                               .filter(
                                 (f) =>
-                                  (f.active && attendanceEligible(state, event, f.id)) ||
+                                  (f.active &&
+                                    (!linkChanged || activityId === null) &&
+                                    attendanceEligible(state, selectionEvent, f.id)) ||
                                   f.id === slot.familyId,
                               )
                               .map((f) => (
@@ -1081,7 +1188,7 @@ function EventEditor({
                                   {f.exempt ? ' · undantagen' : ''}
                                   {!f.active
                                     ? ' · inaktiv'
-                                    : !attendanceEligible(state, event, f.id)
+                                    : !attendanceEligible(state, selectionEvent, f.id)
                                       ? ' · kontrollera kallelsesvar'
                                       : ''}
                                 </option>

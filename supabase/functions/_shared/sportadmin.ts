@@ -1,3 +1,4 @@
+import { applyCommand, attendanceEligible, DomainError } from '../../../src/domain/logic.ts';
 import type { PortalState } from '../../../src/domain/model.ts';
 import {
   SportAdmin,
@@ -76,10 +77,35 @@ export async function sportadminAction(
   load: (slug: string) => Promise<PortalState>,
 ) {
   const op = body.operation;
+  const savingEvent = op === 'save_event';
+  if (
+    savingEvent &&
+    (!Number.isInteger(body.expectedVersion) || body.expectedVersion !== state.version)
+  )
+    throw new HttpError(409, 'Schemat har ändrats. Öppna evenemanget igen.');
+  const eventId = savingEvent ? body.event?.id : body.eventId;
+  if (
+    savingEvent &&
+    (typeof eventId !== 'string' ||
+      eventId.length > 160 ||
+      !/^[\w][\w.:@/-]*$/.test(eventId) ||
+      ['__proto__', 'constructor', 'prototype'].includes(eventId))
+  )
+    throw new HttpError(400, 'Ogiltigt evenemang.');
   if (op === 'status')
     return { integration: connectionStatus(await rpc('read', { team_id: state.team.id })) };
   if (
-    !['connect', 'select', 'preview', 'map', 'map_exact', 'link', 'sync', 'disconnect'].includes(op)
+    ![
+      'connect',
+      'select',
+      'preview',
+      'map',
+      'map_exact',
+      'link',
+      'sync',
+      'disconnect',
+      'save_event',
+    ].includes(op)
   )
     throw new HttpError(400, 'Okänd SportAdmin-åtgärd.');
   const lease = await rpc('acquire', { team_id: state.team.id });
@@ -90,10 +116,35 @@ export async function sportadminAction(
   let finished = false;
   async function finish() {
     for (let attempt = 0; attempt < 3; attempt++) {
-      const latest = await load(state.team.slug),
-        next = applyAttendance(latest, c);
-      const changed = JSON.stringify(next.events) !== JSON.stringify(latest.events);
-      if (changed) next.version++;
+      const latest = await load(state.team.slug);
+      if (savingEvent && latest.version !== body.expectedVersion)
+        throw new HttpError(409, 'Schemat har ändrats. Öppna evenemanget igen.');
+      let next = applyAttendance(latest, c);
+      if (savingEvent) {
+        next = applyAttendance(
+          applyCommand(next, { type: 'save_event', event: body.event }, 'admin'),
+          c,
+        );
+        const savedEvent = next.events.find((e) => e.id === eventId)!;
+        const previous = latest.events.find((e) => e.id === eventId);
+        for (const shift of savedEvent.draft.shifts)
+          for (const slot of shift.slots) {
+            const prior = previous?.draft.shifts
+              .flatMap((s) => s.slots)
+              .find((s) => s.id === slot.id);
+            if (
+              slot.familyId &&
+              slot.familyId !== prior?.familyId &&
+              !attendanceEligible(next, savedEvent, slot.familyId)
+            )
+              throw new HttpError(
+                409,
+                'Familjen har inget aktivt barn med ett aktuellt ja-svar i SportAdmin. Spara kopplingen innan du tilldelar nya pass.',
+              );
+          }
+      }
+      const changed = savingEvent || JSON.stringify(next.events) !== JSON.stringify(latest.events);
+      if (changed) next.version = latest.version + 1;
       try {
         await rpc('finish', {
           ...args,
@@ -103,7 +154,8 @@ export async function sportadminAction(
         finished = true;
         return { integration: connectionStatus(c), state: next };
       } catch (error) {
-        if (!(error instanceof HttpError && error.status === 409) || attempt === 2) throw error;
+        if (savingEvent || !(error instanceof HttpError && error.status === 409) || attempt === 2)
+          throw error;
       }
     }
     throw new HttpError(409, 'Schemat uppdateras. Försök igen.');
@@ -115,12 +167,15 @@ export async function sportadminAction(
       c.error = 'SportAdmin är frånkopplat. Anslut igen eller ta bort evenemangets koppling.';
       return await finish();
     }
-    if (op === 'link' && body.activityId === null) {
-      if (typeof body.eventId !== 'string' || !state.events.some((e) => e.id === body.eventId))
+    if ((op === 'link' || savingEvent) && body.activityId === null) {
+      if (
+        !savingEvent &&
+        (typeof eventId !== 'string' || !state.events.some((e) => e.id === eventId))
+      )
         throw new HttpError(400, 'Välj ett sparat evenemang.');
-      delete c.links?.[body.eventId];
-      delete c.snapshots?.[body.eventId];
-      c.unlinkedEvents = [...new Set([...(c.unlinkedEvents || []), body.eventId])];
+      delete c.links?.[eventId];
+      delete c.snapshots?.[eventId];
+      c.unlinkedEvents = [...new Set([...(c.unlinkedEvents || []), eventId])];
       return await finish();
     }
     if (op === 'connect') {
@@ -181,7 +236,11 @@ export async function sportadminAction(
       if (!selected) throw new HttpError(400, 'Välj ett lag från ditt SportAdmin-konto.');
       c = { session: c.session, profiles: c.profiles, selected };
     }
-    if (!c.selected) return await finish();
+    if (!c.selected) {
+      if (savingEvent)
+        throw new HttpError(400, 'Välj lag under SportAdmin innan du kopplar evenemanget.');
+      return await finish();
+    }
     const api = new SportAdmin(c.session!, [c.selected]);
     c.mapping ||= {};
     c.links ||= {};
@@ -239,23 +298,24 @@ export async function sportadminAction(
         c.mapping[body.childId] = body.memberId;
       }
     }
-    if (op === 'link') {
+    if (op === 'link' || savingEvent) {
       if (
-        typeof body.eventId !== 'string' ||
-        !state.events.some((e) => e.id === body.eventId && !e.cancelled)
+        !savingEvent &&
+        (typeof body.eventId !== 'string' ||
+          !state.events.some((e) => e.id === eventId && !e.cancelled))
       )
         throw new HttpError(400, 'Välj ett sparat evenemang.');
       if (body.activityId === null) {
-        delete c.links[body.eventId];
-        delete c.snapshots[body.eventId];
+        delete c.links[eventId];
+        delete c.snapshots[eventId];
       } else {
         const activity = c.activities?.find((a) => a.id === body.activityId);
         if (!activity) throw new HttpError(400, 'Välj en hämtad SportAdmin-aktivitet.');
         const rows = await api.participants(activity);
         collect(rows);
-        c.links[body.eventId] = activity;
-        c.unlinkedEvents = (c.unlinkedEvents || []).filter((id) => id !== body.eventId);
-        c.snapshots[body.eventId] = { players: rows, checkedAt: new Date().toISOString() };
+        c.links[eventId] = activity;
+        c.unlinkedEvents = (c.unlinkedEvents || []).filter((id) => id !== eventId);
+        c.snapshots[eventId] = { players: rows, checkedAt: new Date().toISOString() };
       }
     }
     if (op === 'sync' || op === 'connect') {
@@ -281,9 +341,13 @@ export async function sportadminAction(
       }
       c.lastSyncAt = new Date().toISOString();
     }
-    if (['sync', 'connect', 'select', 'preview', 'link'].includes(op)) delete c.error;
+    if (['sync', 'connect', 'select', 'preview', 'link', 'save_event'].includes(op)) delete c.error;
     return await finish();
   } catch (error) {
+    if (savingEvent) {
+      if (error instanceof HttpError || error instanceof DomainError) throw error;
+      throw new HttpError(503, safeError(error));
+    }
     if (error instanceof SportAdminError || !(error instanceof HttpError)) {
       c.error = safeError(error);
       return await finish();

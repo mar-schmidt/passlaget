@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, test, vi } from 'vitest';
 import { demoState } from '../domain/demo';
@@ -10,7 +10,7 @@ afterEach(() => {
   cleanup();
   api.mockReset();
 });
-test('admin links a saved event to a selected SportAdmin activity', async () => {
+test('connection page keeps roster tools and explains that events are linked in the editor', async () => {
   const s = demoState();
   const integration = {
     connected: true,
@@ -25,20 +25,9 @@ test('admin links a saved event to a selected SportAdmin activity', async () => 
   api.mockResolvedValue({ integration });
   const refresh = vi.fn().mockResolvedValue(undefined);
   render(<SportAdminPanel state={s} refresh={refresh} />);
-  await screen.findByRole('heading', { name: '2. Koppla evenemang' });
-  const user = userEvent.setup();
-  await user.selectOptions(screen.getByLabelText('Evenemang i Passlaget'), s.events[0].id);
-  await user.selectOptions(screen.getByLabelText('Aktivitet i SportAdmin'), '7');
-  await user.click(screen.getByRole('button', { name: 'Spara koppling' }));
-  await waitFor(() =>
-    expect(api).toHaveBeenCalledWith({
-      action: 'sportadmin',
-      operation: 'link',
-      eventId: s.events[0].id,
-      activityId: 7,
-    }),
-  );
-  expect(refresh).toHaveBeenCalled();
+  await screen.findByRole('heading', { name: 'Kopplade evenemang' });
+  expect(screen.queryByLabelText('Evenemang i Passlaget')).toBeNull();
+  expect(screen.getByText(/när du skapar eller redigerar evenemanget/)).toBeTruthy();
   expect(screen.getByText(/väntar på ledarbehörighet/)).toBeTruthy();
 });
 test('connection form clears password after submit', async () => {

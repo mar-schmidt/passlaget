@@ -5,7 +5,9 @@
 1. Öppna **SportAdmin** i adminmenyn och anslut ditt konto.
 2. Välj rätt lag om kontot har flera medlemskap.
 3. Välj en aktivitet och tryck **Hämta spelare**. Koppla spelarna till barnen i Passlaget. **Koppla entydiga namnträffar** hjälper när fullständiga namn är identiska och unika. Övriga kopplas manuellt. Ett SportAdmin-ID kan bara tillhöra ett barn.
-4. Välj ett sparat Passlaget-evenemang och motsvarande SportAdmin-aktivitet. Tryck **Spara koppling**. Kopplingen gäller direkt, även om evenemanget redan är publicerat.
+4. Öppna **Evenemang** och skapa eller redigera ett evenemang. Välj aktivitet i **Koppla till SportAdmin** och tryck **Spara utkast**. Kopplingen sparas tillsammans med evenemanget, även för helt nya evenemang. **Fördela lediga pass** sparar först kopplingen och fördelar sedan bland rätt familjer.
+
+Du kan ändra eller ta bort kopplingen i samma vy. Valet visas både vid Grunduppgifter och Pass & bemanning. Om SportAdmin inte kan läsas sparas ingen halvfärdig ändring av kopplingen; dina osparade val finns kvar i formuläret.
 
 Nya pass får bara tilldelas en aktiv familj med minst ett aktivt, kopplat barn som svarat ja. Det gäller automatisk tilldelning, manuell tilldelning och självbokning. Ett ja från ett av tvillingarna räcker. Lagets undantag från automatisk tilldelning gäller fortfarande.
 
@@ -13,7 +15,7 @@ Befintliga pass behålls när ett svar ändras. Admin får en varning och ordnar
 
 Svar uppdateras varje timme och med **Uppdatera nu**. Misslyckad synkning, okända svar eller uppgifter äldre än två timmar stoppar nya bokningar för det kopplade evenemanget. Bekräftelse av ett redan tilldelat pass är fortfarande möjlig. Vid fel visas orsaken i admin.
 
-**Ingen koppling** tar bort evenemangets SportAdmin-filter. **Koppla från SportAdmin** tar bort den sparade sessionen men behåller filtren, så att avbrottet inte öppnar bemanningen för alla.
+**Ingen koppling** tar bort evenemangets SportAdmin-filter när du sparar evenemanget. **Koppla från SportAdmin** tar bort den sparade sessionen men behåller filtren, så att avbrottet inte öppnar bemanningen för alla.
 
 ## Spelarinventering: väntar på ledarbehörighet
 

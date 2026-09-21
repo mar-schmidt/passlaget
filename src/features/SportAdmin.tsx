@@ -9,7 +9,7 @@ interface Profile {
   groupId: number;
   memberId: number;
 }
-interface Integration {
+export interface Integration {
   connected: boolean;
   selected?: Profile;
   profiles: Profile[];
@@ -35,8 +35,6 @@ export default function SportAdminPanel({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [preview, setPreview] = useState('');
-  const [eventId, setEventId] = useState('');
-  const [activityId, setActivityId] = useState('');
   async function act(operation: string, values: Record<string, unknown> = {}) {
     setBusy(true);
     setError('');
@@ -174,7 +172,7 @@ export default function SportAdminPanel({
           {data.selected && (
             <>
               <section className="panel">
-                <h2>1. Koppla spelarna</h2>
+                <h2>Koppla spelarna</h2>
                 <p>
                   Hämta spelare från en aktivitet. Koppla varje namn till rätt barn i Passlaget.
                   Detta behöver normalt bara göras en gång.
@@ -257,54 +255,11 @@ export default function SportAdminPanel({
                 )}
               </section>
               <section className="panel">
-                <h2>2. Koppla evenemang</h2>
+                <h2>Kopplade evenemang</h2>
                 <p>
-                  Kopplingen gäller direkt för både manuell och automatisk tilldelning samt
-                  självbokning. Bara familjer med ett kopplat, aktivt barn som svarat ja kan få nya
-                  pass.
+                  Välj SportAdmin-aktivitet när du skapar eller redigerar evenemanget under
+                  Evenemang.
                 </p>
-                <label>
-                  Evenemang i Passlaget
-                  <select
-                    value={eventId}
-                    onChange={(e) => {
-                      setEventId(e.target.value);
-                      setActivityId(String(data.links[e.target.value] || ''));
-                    }}
-                  >
-                    <option value="">Välj sparat evenemang</option>
-                    {state.events
-                      .filter((e) => !e.cancelled)
-                      .map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.draft.title}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label>
-                  Aktivitet i SportAdmin
-                  <select value={activityId} onChange={(e) => setActivityId(e.target.value)}>
-                    <option value="">Ingen koppling</option>
-                    {data.activities.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {dateLabel(a.startsAt)} · {a.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="button primary"
-                  disabled={busy || !eventId}
-                  onClick={() =>
-                    void act('link', {
-                      eventId,
-                      activityId: activityId ? Number(activityId) : null,
-                    })
-                  }
-                >
-                  Spara koppling
-                </button>
                 {state.events
                   .filter((e) => e.attendance)
                   .map((e) => (

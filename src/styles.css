@@ -3753,3 +3753,8 @@ tr:last-child td {
 .sportadmin-panel button { margin: .3rem 0; }
 .sa-mappings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 0 1.5rem; margin-top: 1rem; }
 .sa-linked { border-top: 1px solid var(--border, #ddd); margin-top: 1.2rem; padding-top: 1rem; }
+
+.event-sportadmin-link { margin-bottom: 1.4rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border, #ddd); }
+.event-sportadmin-link label { display: grid; gap: .45rem; }
+.event-sportadmin-link select { width: 100%; min-width: 0; }
+.event-sportadmin-link .hint { margin: .5rem 0 0; }

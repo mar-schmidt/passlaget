@@ -170,6 +170,16 @@ function publishedEvent(
 let server: PortalState;
 beforeEach(() => {
   vi.clearAllMocks();
+  client.api.mockReset().mockResolvedValue({
+    integration: {
+      connected: false,
+      profiles: [],
+      activities: [],
+      players: [],
+      mapping: {},
+      links: {},
+    },
+  });
   // Keep fixture passes upcoming even when this suite runs in a later calendar year.
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date('2030-06-01T12:00:00Z'));
@@ -850,4 +860,121 @@ it('does not offer self booking in administrator assigned events', () => {
     />,
   );
   expect(screen.queryByRole('button', { name: 'Boka platsen' })).toBeNull();
+});
+
+describe('SportAdmin in the event editor', () => {
+  const integration = (links: Record<string, number> = {}) => ({
+    connected: true,
+    profiles: [],
+    activities: [{ id: 7, title: 'Testmatch i SportAdmin', startsAt: '2030-06-15T09:00:00Z' }],
+    players: [],
+    mapping: {},
+    links,
+  });
+  it('saves a selected activity with a new event before automatic planning', async () => {
+    client.api.mockResolvedValue({ integration: integration() });
+    const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'admin'));
+    const user = userEvent.setup();
+    render(
+      <Admin state={server} page="oversikt" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Nytt evenemang' }));
+    const dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Evenemangets namn'), 'Ny match');
+    await screen.findByRole('option', { name: /Testmatch i SportAdmin/ });
+    await user.selectOptions(within(dialog).getByLabelText('Koppla till SportAdmin'), '7');
+    await user.click(within(dialog).getByRole('button', { name: /Pass & bemanning/ }));
+    expect(
+      (
+        within(dialog).getAllByRole('combobox', {
+          name: /Familj för plats/,
+        })[0] as HTMLSelectElement
+      ).disabled,
+    ).toBe(true);
+    await user.click(within(dialog).getByRole('button', { name: 'Fördela lediga pass' }));
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(2));
+    expect(mutate.mock.calls[0][0]).toMatchObject({
+      type: 'save_event',
+      sportadminActivityId: 7,
+      event: { draft: { title: 'Ny match' } },
+    });
+    expect(mutate.mock.calls[1][0]).toMatchObject({ type: 'auto_plan' });
+  });
+  it('preserves the existing link if SportAdmin cannot be loaded', async () => {
+    client.api.mockRejectedValue(new Error('unavailable'));
+    const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'admin'));
+    const user = userEvent.setup();
+    render(
+      <Admin state={server} page="oversikt" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Nytt evenemang' }));
+    await user.type(screen.getByLabelText('Evenemangets namn'), 'Vanligt evenemang');
+    await screen.findByText(/Befintlig koppling behålls/);
+    await user.click(screen.getByRole('button', { name: 'Spara utkast' }));
+    await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+    expect(mutate.mock.calls[0][0]).not.toHaveProperty('sportadminActivityId');
+  });
+});
+
+it('shows an existing activity outside the upcoming list and saves removal from the event editor', async () => {
+  const event = server.events[0];
+  event.attendance = { title: 'Tidigare SportAdmin-match', checkedAt: '', eligibleChildIds: [] };
+  client.api.mockResolvedValue({
+    integration: {
+      connected: false,
+      profiles: [],
+      activities: [],
+      players: [],
+      mapping: {},
+      links: { [event.id]: 99 },
+    },
+  });
+  const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'admin'));
+  const user = userEvent.setup();
+  render(
+    <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+  );
+  const article = screen.getByRole('heading', { name: 'Öppet testsammandrag' }).closest('article')!;
+  await user.click(within(article).getByRole('button', { name: 'Öppna planering' }));
+  await screen.findByRole('option', { name: 'Tidigare SportAdmin-match' });
+  const select = screen.getByLabelText('Koppla till SportAdmin') as HTMLSelectElement;
+  expect(select.value).toBe('99');
+  await user.selectOptions(select, '');
+  await user.click(screen.getByRole('button', { name: 'Spara utkast' }));
+  await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+  expect(mutate.mock.calls[0][0]).toMatchObject({
+    type: 'save_event',
+    sportadminActivityId: null,
+    event: { id: event.id },
+  });
+});
+
+it('keeps unsaved event details and activity choice if the combined save fails', async () => {
+  client.api.mockResolvedValue({
+    integration: {
+      connected: true,
+      profiles: [],
+      activities: [{ id: 7, title: 'Testmatch', startsAt: '2030-06-15T09:00:00Z' }],
+      players: [],
+      mapping: {},
+      links: {},
+    },
+  });
+  const mutate = vi.fn().mockRejectedValue(new Error('SportAdmin kunde inte läsas.'));
+  const user = userEvent.setup();
+  render(
+    <Admin state={server} page="oversikt" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Nytt evenemang' }));
+  await user.type(screen.getByLabelText('Evenemangets namn'), 'Behåll mitt utkast');
+  await screen.findByRole('option', { name: /Testmatch/ });
+  await user.selectOptions(screen.getByLabelText('Koppla till SportAdmin'), '7');
+  await user.click(screen.getByRole('button', { name: 'Spara utkast' }));
+  await waitFor(() =>
+    expect(screen.getByRole('alert').textContent).toContain('SportAdmin kunde inte läsas'),
+  );
+  expect((screen.getByLabelText('Evenemangets namn') as HTMLInputElement).value).toBe(
+    'Behåll mitt utkast',
+  );
+  expect((screen.getByLabelText('Koppla till SportAdmin') as HTMLSelectElement).value).toBe('7');
 });

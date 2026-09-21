@@ -82,6 +82,20 @@ await assert.rejects(
 );
 await sa('save', { team_id: 't1', lease: lease.lease, data: { session: 'secret' } });
 assert.equal(await sa('read', { team_id: 't2' }), null);
+// An event edit and its connection are one transaction, including failures after the state update.
+await assert.rejects(
+  () =>
+    sa('finish', {
+      team_id: 't1',
+      lease: lease.lease,
+      expected_version: 0,
+      state: { ...state, version: 1 },
+      data: [],
+    }),
+  /INVALID_CONNECTION/,
+);
+assert.equal((await rpc('read', { slug: 'team-one' })).state.version, 0);
+assert.equal((await sa('read', { team_id: 't1' })).session, 'secret');
 await sa('finish', { team_id: 't1', lease: lease.lease, data: { session: 'rotated' } });
 assert.equal((await sa('read', { team_id: 't1' })).session, 'rotated');
 await assert.rejects(

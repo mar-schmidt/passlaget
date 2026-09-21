@@ -417,6 +417,21 @@ export async function handle(request: Request): Promise<Response> {
       if (command.type === 'remind_confirmation') requireMail();
       if (!Number.isInteger(body.expectedVersion) || body.expectedVersion !== state.version)
         throw new HttpError(409, 'Schemat har ändrats. Hämta senaste uppgifterna.', 'conflict');
+      if (command.type === 'save_event' && Object.hasOwn(command, 'sportadminActivityId')) {
+        await rateLimit(request, 'sportadmin_team', state.team.id, 30, 60);
+        const result = await sportadminAction(
+          {
+            operation: 'save_event',
+            event: command.event,
+            activityId: command.sportadminActivityId,
+            expectedVersion: body.expectedVersion,
+          },
+          state,
+          sportRpc,
+          loadTeam,
+        );
+        return response({ state: result!.state });
+      }
       const next = applyCommand(state, command, isPublic ? 'public' : 'admin');
       if (next.team.id !== state.team.id || next.team.slug !== state.team.slug)
         throw new HttpError(400, 'Lagets id och adress kan inte ändras.');
