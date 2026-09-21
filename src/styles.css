@@ -3741,3 +3741,8 @@ tr:last-child td {
 .person-edit-row.adults > label:not(.check-label) {
   min-width: 10rem;
 }
+
+.allocation-answer {
+  grid-column: 2 / -1;
+  width: 100%;
+}

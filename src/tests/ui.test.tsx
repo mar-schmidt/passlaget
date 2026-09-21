@@ -786,3 +786,68 @@ describe('parent contact emails and individual reminders', () => {
     expect(screen.getByText('Mejladress saknas – lägg till under Barn & föräldrar.')).toBeTruthy();
   });
 });
+
+it('lets a parent book a vacant preparation, enter a contribution and see the deadline', async () => {
+  const user = userEvent.setup();
+  const event = server.events[0];
+  event.published!.bookingMode = 'self';
+  const shift = event.published!.shifts[0];
+  Object.assign(shift, {
+    kind: 'task',
+    countsTowardBalance: false,
+    title: 'Bakning',
+    group: 'Förberedelser',
+    answerPrompt: 'Vad bakar du?',
+    endsAt: shift.startsAt,
+  });
+  delete shift.slots[0].familyId;
+  event.draft = structuredClone(event.published!);
+  const mutate = vi.fn(async (command: PortalCommand) => {
+    server = applyCommand(server, command, 'public');
+    return server;
+  });
+  const props = { setFamilyId: vi.fn(), mutate, tell: vi.fn(), familyId: 'family-one' };
+  const view = render(<Parents {...props} state={projected(server)} />);
+  expect(screen.getByText('Bakning')).toBeTruthy();
+  expect(screen.getByText('Senast 15 juni kl. 11:00')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Boka platsen' }));
+  const modal = screen.getByRole('dialog', { name: 'Boka ett uppdrag' });
+  await user.type(within(modal).getByRole('textbox', { name: 'Telefonnummer' }), '0701234567');
+  await user.type(
+    within(modal).getByRole('textbox', { name: 'Mejladress' }),
+    'parent@example.test',
+  );
+  await user.type(within(modal).getByRole('textbox', { name: /Vad bakar du/ }), 'Kanelbullar');
+  await user.click(within(modal).getByRole('checkbox'));
+  await user.click(within(modal).getByRole('button', { name: 'Boka och bekräfta' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(mutate.mock.calls[0][0]).toMatchObject({
+    type: 'book',
+    familyId: 'family-one',
+    answer: 'Kanelbullar',
+  });
+  view.rerender(<Parents {...props} state={projected(server)} />);
+  const own = screen.getByRole('region', { name: 'Familjens uppdrag' });
+  expect(within(own).getByText('Bekräftat')).toBeTruthy();
+  await user.click(within(own).getByRole('button', { name: 'Skriv / ändra uppgifter' }));
+  const answer = screen.getByRole('textbox', { name: /Vad bakar du/ });
+  await user.clear(answer);
+  await user.type(answer, 'Muffins');
+  await user.click(screen.getByRole('button', { name: 'Spara uppgifter' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(server.events[0].published!.shifts[0].slots[0].answer).toBe('Muffins');
+});
+
+it('does not offer self booking in administrator assigned events', () => {
+  delete server.events[0].published!.shifts[0].slots[0].familyId;
+  render(
+    <Parents
+      state={projected(server)}
+      familyId="family-one"
+      setFamilyId={vi.fn()}
+      mutate={vi.fn()}
+      tell={vi.fn()}
+    />,
+  );
+  expect(screen.queryByRole('button', { name: 'Boka platsen' })).toBeNull();
+});

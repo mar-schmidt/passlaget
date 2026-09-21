@@ -289,3 +289,33 @@ describe('mail queue planning', () => {
     ).toHaveLength(0);
   });
 });
+
+it('renders station names, preparation deadlines, answers and approximate finish times', () => {
+  const source = state();
+  const shift = source.events[0].published!.shifts[0];
+  Object.assign(shift, {
+    title: 'Bakning',
+    kind: 'task',
+    countsTowardBalance: false,
+    answerPrompt: 'Vad bakar du?',
+    endsAt: shift.startsAt,
+  });
+  shift.slots[0].answer = 'Bullarna';
+  const text = renderMail(
+    'Uppdrag',
+    entries(source),
+    'assignment',
+    'https://example.test',
+    '',
+  ).text;
+  expect(text).toContain('Bakning – Cup');
+  expect(text).toContain('Klart / lämnas senast:');
+  expect(text).toContain('Vad bakar du?: Bullarna');
+  expect(text).not.toContain(' till ');
+  shift.kind = 'shift';
+  shift.endsAt = '2026-10-10T20:00:00Z';
+  shift.endIsApproximate = true;
+  expect(
+    renderMail('Uppdrag', entries(source), 'assignment', 'https://example.test', '').text,
+  ).toContain('till cirka 22:00');
+});

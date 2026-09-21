@@ -21,6 +21,10 @@ export interface MailEntry {
   adultName?: string;
   title: string;
   role: string;
+  task?: boolean;
+  approximate?: boolean;
+  sharedNote?: string;
+  answerNote?: string;
   location: string;
   instructions: string;
   startsAt: string;
@@ -63,7 +67,17 @@ export function entries(state: PortalState): MailEntry[] {
                 adultId: slot.adultId,
                 adultName: slot.adultName,
                 title: event.published!.title,
-                role: shift.roleName,
+                role: shift.title || shift.roleName,
+                task: shift.kind === 'task',
+                approximate: shift.endIsApproximate,
+                sharedNote:
+                  shift.sharedPrompt && shift.sharedAnswer
+                    ? `${shift.sharedPrompt}: ${shift.sharedAnswer}`
+                    : undefined,
+                answerNote:
+                  shift.answerPrompt && slot.answer
+                    ? `${shift.answerPrompt}: ${slot.answer}`
+                    : undefined,
                 location: event.published!.location,
                 instructions: shift.instructions,
                 startsAt: shift.startsAt,
@@ -97,6 +111,8 @@ const fingerprint = (entry: MailEntry) =>
     entry.instructions,
     entry.startsAt,
     entry.endsAt,
+    entry.task,
+    entry.approximate,
   ]);
 const subjectByKind = {
   assignment: 'Nya bemanningspass',
@@ -221,7 +237,9 @@ export function renderMail(
   const lines = mailEntries.map((entry) =>
     [
       `${entry.role} – ${entry.title}`,
-      `${formatter.format(new Date(entry.startsAt))} till ${new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' }).format(new Date(entry.endsAt))}`,
+      entry.task
+        ? `Klart / lämnas senast: ${formatter.format(new Date(entry.startsAt))}`
+        : `${formatter.format(new Date(entry.startsAt))} till ${entry.approximate ? 'cirka ' : ''}${new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Stockholm' }).format(new Date(entry.endsAt))}`,
       `Plats: ${entry.location}`,
       kind === 'cancelled'
         ? 'Du ska inte bemanna det här passet längre.'
@@ -229,6 +247,8 @@ export function renderMail(
           ? `Ansvarig vuxen: ${entry.adultName}`
           : 'Välj vem som kommer i portalen.',
       kind === 'cancelled' ? '' : entry.instructions,
+      kind === 'cancelled' ? '' : entry.sharedNote,
+      kind === 'cancelled' ? '' : entry.answerNote,
     ]
       .filter(Boolean)
       .join('\n'),

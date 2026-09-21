@@ -582,6 +582,7 @@ function EventEditor({
             adultId: undefined,
             adultName: undefined,
             adultPhone: undefined,
+            answer: undefined,
             status: 'pending' as const,
           }
         : slot,
@@ -685,6 +686,20 @@ function EventEditor({
         {tab === 'details' && (
           <div className="form-stack">
             <label>
+              Hur bokas uppdragen?
+              <select
+                value={details.bookingMode || 'admin'}
+                onChange={(e) => patch({ bookingMode: e.target.value as 'admin' | 'self' })}
+              >
+                <option value="admin">Jag tilldelar familjer</option>
+                <option value="self">Föräldrar bokar lediga platser själva</option>
+              </select>
+              <span className="hint">
+                Du kan alltid tilldela kvarvarande platser. Föräldrar kan boka när schemat är
+                publicerat.
+              </span>
+            </label>
+            <label>
               Evenemangets namn
               <input
                 required
@@ -753,6 +768,18 @@ function EventEditor({
                   {currentCount.filled} av {currentCount.total} platser bemannade
                 </strong>
                 <p>Välj familj själv eller låt Passlaget fördela de lediga platserna.</p>
+                {details.shifts.some((s) => s.kind === 'task') && (
+                  <p>
+                    {details.shifts
+                      .filter((s) => s.kind !== 'task')
+                      .reduce((n, s) => n + s.slots.length, 0)}{' '}
+                    bemanningsplatser ·{' '}
+                    {details.shifts
+                      .filter((s) => s.kind === 'task')
+                      .reduce((n, s) => n + s.slots.length, 0)}{' '}
+                    förberedelser
+                  </p>
+                )}
               </div>
               <BusyButton
                 busy={busy === 'auto'}
@@ -779,7 +806,10 @@ function EventEditor({
               <section className="shift-editor" key={shift.id}>
                 <div className="shift-editor-head">
                   <span className="role-icon">{roleEmoji(shift.roleName)}</span>
-                  <strong>Pass {index + 1}</strong>
+                  <strong>
+                    {shift.title || `Pass ${index + 1}`}
+                    {shift.group ? ` · ${shift.group}` : ''}
+                  </strong>
                   <button
                     className="icon-button"
                     aria-label={`Ta bort pass ${index + 1}`}
@@ -794,6 +824,48 @@ function EventEditor({
                     <Trash2 size={17} />
                   </button>
                 </div>
+                <div className="form-row">
+                  <label>
+                    Stationens namn (valfritt)
+                    <input
+                      maxLength={200}
+                      value={shift.title || ''}
+                      placeholder="Till exempel Post 2 eller Fiskedamm"
+                      onChange={(e) => patchShift(shift.id, { title: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Grupp (valfritt)
+                    <input
+                      maxLength={200}
+                      value={shift.group || ''}
+                      placeholder="Till exempel Skogen eller A-plan"
+                      onChange={(e) => patchShift(shift.id, { group: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <label>
+                  Typ av uppdrag
+                  <select
+                    value={shift.kind || 'shift'}
+                    onChange={(e) => {
+                      const task = e.target.value === 'task';
+                      patchShift(shift.id, {
+                        kind: task ? 'task' : 'shift',
+                        countsTowardBalance: !task,
+                        endIsApproximate: false,
+                        endsAt: task
+                          ? shift.startsAt
+                          : new Date(
+                              new Date(shift.startsAt).getTime() + 2 * 3600000,
+                            ).toISOString(),
+                      });
+                    }}
+                  >
+                    <option value="shift">Bemanningspass på plats</option>
+                    <option value="task">Frivillig förberedelse med deadline</option>
+                  </select>
+                </label>
                 <div className="shift-fields">
                   <label>
                     Uppdrag
@@ -817,7 +889,7 @@ function EventEditor({
                     </select>
                   </label>
                   <label>
-                    Börjar
+                    {shift.kind === 'task' ? 'Klart / lämnas senast' : 'Börjar'}
                     <input
                       aria-label={`Pass ${index + 1} börjar`}
                       type="datetime-local"
@@ -825,22 +897,28 @@ function EventEditor({
                       value={toLocal(shift.startsAt)}
                       onChange={(e) => {
                         if (e.target.value)
-                          patchShift(shift.id, { startsAt: toIso(e.target.value) });
+                          patchShift(shift.id, {
+                            startsAt: toIso(e.target.value),
+                            ...(shift.kind === 'task' ? { endsAt: toIso(e.target.value) } : {}),
+                          });
                       }}
                     />
                   </label>
-                  <label>
-                    Slutar
-                    <input
-                      aria-label={`Pass ${index + 1} slutar`}
-                      type="datetime-local"
-                      required
-                      value={toLocal(shift.endsAt)}
-                      onChange={(e) => {
-                        if (e.target.value) patchShift(shift.id, { endsAt: toIso(e.target.value) });
-                      }}
-                    />
-                  </label>
+                  {shift.kind !== 'task' && (
+                    <label>
+                      Slutar
+                      <input
+                        aria-label={`Pass ${index + 1} slutar`}
+                        type="datetime-local"
+                        required
+                        value={toLocal(shift.endsAt)}
+                        onChange={(e) => {
+                          if (e.target.value)
+                            patchShift(shift.id, { endsAt: toIso(e.target.value) });
+                        }}
+                      />
+                    </label>
+                  )}
                   <label>
                     Antal vuxna
                     <input
@@ -854,8 +932,37 @@ function EventEditor({
                     />
                   </label>
                 </div>
+                {shift.kind !== 'task' ? (
+                  <div className="form-row">
+                    <label className="check-label">
+                      <input
+                        type="checkbox"
+                        checked={!!shift.endIsApproximate}
+                        onChange={(e) =>
+                          patchShift(shift.id, { endIsApproximate: e.target.checked })
+                        }
+                      />
+                      Ungefärlig sluttid
+                    </label>
+                    <label className="check-label">
+                      <input
+                        type="checkbox"
+                        checked={shift.countsTowardBalance !== false}
+                        onChange={(e) =>
+                          patchShift(shift.id, { countsTowardBalance: e.target.checked })
+                        }
+                      />
+                      Räknas som ett pass i fördelningen
+                    </label>
+                  </div>
+                ) : (
+                  <p className="hint">
+                    Förberedelser räknas inte som pass och fylls genom självbokning eller manuell
+                    tilldelning.
+                  </p>
+                )}
                 <details className="instructions edit-instructions">
-                  <summary>Instruktioner & annat lag</summary>
+                  <summary>Instruktioner, frågor till föräldrar & annat lag</summary>
                   <label>
                     Instruktioner för passet
                     <textarea
@@ -863,6 +970,38 @@ function EventEditor({
                       maxLength={3000}
                       value={shift.instructions}
                       onChange={(e) => patchShift(shift.id, { instructions: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Gemensam fråga för stationen
+                    <input
+                      maxLength={200}
+                      placeholder="Till exempel Tema"
+                      value={shift.sharedPrompt || ''}
+                      onChange={(e) => patchShift(shift.id, { sharedPrompt: e.target.value })}
+                    />
+                  </label>
+                  {shift.sharedPrompt && (
+                    <label>
+                      {shift.sharedPrompt}
+                      <textarea
+                        rows={2}
+                        maxLength={2000}
+                        value={shift.sharedAnswer || ''}
+                        onChange={(e) => patchShift(shift.id, { sharedAnswer: e.target.value })}
+                      />
+                      <span className="hint">
+                        De bokade föräldrarna kan uppdatera svaret tillsammans.
+                      </span>
+                    </label>
+                  )}
+                  <label>
+                    Individuell fråga till den som bokar
+                    <input
+                      maxLength={200}
+                      placeholder="Till exempel Vad bakar du?"
+                      value={shift.answerPrompt || ''}
+                      onChange={(e) => patchShift(shift.id, { answerPrompt: e.target.value })}
                     />
                   </label>
                   <label>
@@ -931,7 +1070,9 @@ function EventEditor({
                         <button
                           className={`icon-button lock-button ${slot.locked ? 'locked' : ''}`}
                           aria-label={
-                            slot.locked ? 'Lås upp plats' : 'Lås plats för automatisk fördelning'
+                            slot.locked
+                              ? 'Lås upp plats'
+                              : 'Lås plats för automatisk fördelning och självbokning'
                           }
                           title={slot.locked ? 'Platsen är låst' : 'Lås denna plats'}
                           onClick={() =>
@@ -945,6 +1086,23 @@ function EventEditor({
                           <LockKeyhole size={17} />
                         </button>
                         <Status slot={slot} />
+                        {shift.answerPrompt && slot.familyId && (
+                          <label className="allocation-answer">
+                            {shift.answerPrompt}
+                            <textarea
+                              rows={2}
+                              maxLength={2000}
+                              value={slot.answer || ''}
+                              onChange={(e) =>
+                                patchShift(shift.id, {
+                                  slots: shift.slots.map((s) =>
+                                    s.id === slot.id ? { ...s, answer: e.target.value } : s,
+                                  ),
+                                })
+                              }
+                            />
+                          </label>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -962,7 +1120,7 @@ function EventEditor({
             </button>
             <p className="hint">
               Alla tider är svensk tid. Redan tilldelade eller låsta platser behålls vid automatisk
-              fördelning.
+              fördelning. Frivilliga bidrag lämnas för självbokning eller manuell tilldelning.
             </p>
           </>
         )}
@@ -1183,7 +1341,7 @@ function Completion({
             <div className="completion-row" key={slot.id}>
               <input
                 type="checkbox"
-                aria-label={`Välj ${familyLabel(state, slot.familyId)}, ${shift.roleName}`}
+                aria-label={`Välj ${familyLabel(state, slot.familyId)}, ${shift.title || shift.roleName}`}
                 disabled={!!busy || !ended.includes(slot.id)}
                 checked={selected.includes(slot.id)}
                 onChange={(e) =>
@@ -1196,7 +1354,7 @@ function Completion({
               />
               <div>
                 <strong>
-                  {familyLabel(state, slot.familyId)} · {shift.roleName}
+                  {familyLabel(state, slot.familyId)} · {shift.title || shift.roleName}
                 </strong>
                 <span>
                   {dateLabel(shift.startsAt)} · {timeRange(shift)} ·{' '}
@@ -2558,8 +2716,8 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
                 </p>
                 <p>
                   Utskick läggs i kö när uppdrag publiceras eller ändras. Automatiska påminnelser
-                  skickas bara om passet fortfarande saknar bekräftelse. Ett bekräftat pass får
-                  inga fler påminnelser.
+                  skickas bara om passet fortfarande saknar bekräftelse. Ett bekräftat pass får inga
+                  fler påminnelser.
                 </p>
                 <p>
                   Under Svar & uppföljning kan du påminna om ett enskilt pass som saknar

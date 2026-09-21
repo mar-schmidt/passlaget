@@ -78,3 +78,18 @@ describe('single-event calendar exports', () => {
     expect(() => toIcs({ ...event, endsAt: event.startsAt })).toThrow('Sluttiden');
   });
 });
+
+it('exports a preparation deadline as a single instant, not a working interval', () => {
+  const deadline = {
+    ...event,
+    title: 'Senast: Lämna bakverk',
+    deadline: true,
+    endsAt: event.startsAt,
+  };
+  expect(toIcs(deadline)).toContain('DTSTART:20261003T090000Z');
+  expect(toIcs(deadline)).not.toContain('DTEND:');
+  expect(new URL(googleCalendarUrl(deadline)).searchParams.get('dates')).toBe(
+    '20261003T090000Z/20261003T090000Z',
+  );
+  expect(() => toIcs({ ...deadline, deadline: false })).toThrow();
+});

@@ -356,7 +356,11 @@ export async function handle(request: Request): Promise<Response> {
         typeof command.type !== 'string'
       )
         throw new HttpError(400, 'Ogiltig ändring.');
-      const isPublic = command.type === 'confirm' || command.type === 'request_change';
+      const isPublic =
+        command.type === 'confirm' ||
+        command.type === 'book' ||
+        command.type === 'update_answers' ||
+        command.type === 'request_change';
       if (!isPublic) await requireAdmin(request, state);
       else
         await rateLimit(

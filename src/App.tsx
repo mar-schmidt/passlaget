@@ -144,7 +144,11 @@ export default function App() {
       );
     ++readSequence.current;
     let next = await runCommand(command, stateRef.current.version, admin);
-    if (admin && !isDemo && (command.type === 'confirm' || command.type === 'request_change'))
+    if (
+      admin &&
+      !isDemo &&
+      ['confirm', 'book', 'update_answers', 'request_change'].includes(command.type)
+    )
       next = await readPortal(true);
     setCurrent(next);
     return next;

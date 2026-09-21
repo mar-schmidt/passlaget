@@ -334,3 +334,44 @@ describe('email-aware participation gateway', () => {
     },
   );
 });
+
+it('accepts public self booking atomically and rejects a stale competing booking without leaking contact data', async () => {
+  current.events = [current.events[0]];
+  const event = current.events[0];
+  event.published!.bookingMode = 'self';
+  event.published!.startDate = '2099-10-04';
+  event.published!.endDate = '2099-10-04';
+  const shift = event.published!.shifts[0];
+  shift.startsAt = '2099-10-04T08:00:00+02:00';
+  shift.endsAt = '2099-10-04T10:00:00+02:00';
+  shift.slots = [{ id: 'book-me', locked: false, revision: 1, status: 'pending' }];
+  event.published!.shifts = [shift];
+  event.draft = structuredClone(event.published!);
+  const adult = current.adults.find((a) => a.id === 'adult-1-1')!;
+  const body = {
+    action: 'command',
+    teamSlug: current.team.slug,
+    expectedVersion: current.version,
+    command: {
+      type: 'book',
+      eventId: event.id,
+      slotId: 'book-me',
+      revision: 1,
+      familyId: 'family-1',
+      adultId: adult.id,
+      adultName: adult.name,
+      adultPhone: adult.phone,
+      adultEmail: 'booking-private@example.test',
+    },
+  };
+  const response = await handle(request(body));
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(JSON.stringify(result)).not.toContain('booking-private@example.test');
+  expect(result.state.events[0].published.shifts[0].slots[0].status).toBe('confirmed');
+  expect(mock.getUser).not.toHaveBeenCalled();
+  expect(calls('commit')).toHaveLength(1);
+  expect(calls('commit')[0][1].p_args.jobs).toEqual([]);
+  expect((await handle(request(body))).status).toBe(409);
+  expect(calls('commit')).toHaveLength(1);
+});

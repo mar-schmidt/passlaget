@@ -60,12 +60,11 @@ export async function buildContactMailJobs(
   for (const recipient of recipients) {
     // Confirmation saves the address without an immediate assignment email.
     // Only other, still-pending duties may retain future reminders.
-    const basis =
-      command.type === 'confirm'
-        ? after
-        : old.some((s) => s.id === recipient.id)
-          ? before
-          : { ...before, events: [] };
+    const basis = ['confirm', 'book', 'update_answers'].includes(command.type)
+      ? after
+      : old.some((s) => s.id === recipient.id)
+        ? before
+        : { ...before, events: [] };
     result.push(
       ...(await buildMailJobs(basis, after, [recipient], now)).map((job) => direct(job, recipient)),
     );

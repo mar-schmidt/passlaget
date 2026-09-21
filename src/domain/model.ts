@@ -40,6 +40,7 @@ export interface Slot {
   adultId?: string;
   adultName?: string;
   adultPhone?: string;
+  answer?: string;
   locked: boolean;
   revision: number;
   status: SlotStatus;
@@ -49,6 +50,15 @@ export interface Slot {
   reminderRevision?: number;
 }
 export interface Shift {
+  /** Tasks use a single deadline: startsAt === endsAt; no on-site time interval. */
+  kind?: 'shift' | 'task';
+  title?: string;
+  group?: string;
+  countsTowardBalance?: boolean;
+  endIsApproximate?: boolean;
+  sharedPrompt?: string;
+  sharedAnswer?: string;
+  answerPrompt?: string;
   id: string;
   roleId: string;
   roleName: string;
@@ -59,6 +69,7 @@ export interface Shift {
   slots: Slot[];
 }
 export interface EventDetails {
+  bookingMode?: 'admin' | 'self';
   title: string;
   location: string;
   startDate: string;
@@ -133,6 +144,21 @@ export type PortalCommand =
   | { type: 'cancel_event'; eventId: string }
   | {
       type: 'confirm';
+      answer?: string;
+      sharedAnswer?: string;
+      eventId: string;
+      slotId: string;
+      revision: number;
+      familyId: string;
+      adultId?: string;
+      adultName: string;
+      adultPhone: string;
+      adultEmail: string;
+    }
+  | {
+      type: 'book';
+      answer?: string;
+      sharedAnswer?: string;
       eventId: string;
       slotId: string;
       revision: number;
@@ -156,6 +182,15 @@ export type PortalCommand =
       revision: number;
       familyId: string;
       message: string;
+    }
+  | {
+      type: 'update_answers';
+      eventId: string;
+      slotId: string;
+      revision: number;
+      familyId: string;
+      answer?: string;
+      sharedAnswer?: string;
     }
   | { type: 'resolve_request'; requestId: string; status: 'resolved' | 'declined' }
   | { type: 'complete_slot'; eventId: string; slotId: string; completed: boolean }
@@ -181,6 +216,7 @@ export interface PlanningResult {
   notices: string[];
 }
 export interface CalendarEvent {
+  deadline?: boolean;
   id: string;
   title: string;
   startsAt: string;

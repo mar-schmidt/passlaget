@@ -33,7 +33,7 @@ import {
 } from '../ui';
 import './parents-matchday.css';
 
-type Selection = { event: PortalEvent; shift: Shift; slot: Slot };
+type Selection = { event: PortalEvent; shift: Shift; slot: Slot; booking?: boolean };
 interface Props {
   state: PortalState;
   familyId: string;
@@ -61,6 +61,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
   const [choosingFamily, setChoosingFamily] = useState(false);
   const [showPublic, setShowPublic] = useState(false);
   const [confirm, setConfirm] = useState<Selection | null>(null);
+  const [answers, setAnswers] = useState<Selection | null>(null);
   const [request, setRequest] = useState<Selection | null>(null);
   const [calendar, setCalendar] = useState<CalendarEvent | null>(null);
   const [loadingCalendar, setLoadingCalendar] = useState('');
@@ -113,8 +114,12 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
       .slice()
       .sort((a, b) => a.startsAt.localeCompare(b.startsAt))
       .reduce((groups, shift) => {
-        const key = `${shift.roleId}:${shift.roleName}`;
-        const group = groups.get(key) || { key, name: shift.roleName, shifts: [] as Shift[] };
+        const key = shift.group || `${shift.roleId}:${shift.roleName}`;
+        const group = groups.get(key) || {
+          key,
+          name: shift.group || shift.roleName,
+          shifts: [] as Shift[],
+        };
         group.shifts.push(shift);
         groups.set(key, group);
         return groups;
@@ -146,11 +151,12 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
         throw new Error('Passet är inte längre aktuellt. Uppdatera schemat.');
       setCalendar({
         id: `${event.id}-${slot.id}`,
-        title: `${shift.roleName} – ${state.team.clubName}`,
+        title: `${shift.kind === 'task' ? 'Senast: ' : ''}${shift.title || shift.roleName} – ${state.team.clubName}`,
+        deadline: shift.kind === 'task',
         startsAt: shift.startsAt,
         endsAt: shift.endsAt,
         location: event.published.location,
-        description: `${event.published.title}\n${shift.instructions}\nAnsvarig: ${slot.adultName || familyLabel(latest, slot.familyId)}\nAktuell information finns i Passlaget.`,
+        description: `${event.published.title}\n${shift.instructions}\n${shift.endIsApproximate ? 'Sluttiden är ungefärlig.\n' : ''}${shift.sharedPrompt && shift.sharedAnswer ? `${shift.sharedPrompt}: ${shift.sharedAnswer}\n` : ''}${shift.answerPrompt && slot.answer ? `${shift.answerPrompt}: ${slot.answer}\n` : ''}Ansvarig: ${slot.adultName || familyLabel(latest, slot.familyId)}\nAktuell information finns i Passlaget.`,
         url: `${location.origin}${location.pathname}#/foraldrar`,
       });
     } catch (e) {
@@ -268,7 +274,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                           · {timeRange(item.shift)}
                         </strong>
                         <span>
-                          {item.shift.roleName} · {item.event.published!.title}
+                          {item.shift.title || item.shift.roleName} · {item.event.published!.title}
                         </span>
                       </span>
                       <PublishedStatus
@@ -361,14 +367,18 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                   <section className="md-own" aria-label="Familjens uppdrag">
                     <div className="md-section-heading">
                       <h2>Din familjs uppdrag</h2>
-                      <span>{ownAssignments.length} pass</span>
+                      <span>{ownAssignments.length} uppdrag</span>
                     </div>
                     {ownAssignments.length === 0 ? (
                       <div className="md-no-assignment">
                         <Check size={23} aria-hidden="true" />
                         <p>
                           <strong>Inget pass för er här.</strong>
-                          <span>Ni är inte inplanerade på det här evenemanget.</span>
+                          <span>
+                            {details.bookingMode === 'self' && !event.cancelled && !eventPast
+                              ? 'Välj ett ledigt uppdrag i schemat och boka det som passar er.'
+                              : 'Ni är inte inplanerade på det här evenemanget.'}
+                          </span>
                         </p>
                       </div>
                     ) : (
@@ -404,12 +414,14 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                               )}
                             </div>
                             <div className="md-assignment-main">
-                              <div className="md-own-time">
+                              <div
+                                className={`md-own-time ${item.shift.kind === 'task' ? 'md-deadline' : ''}`}
+                              >
                                 {timeRange(item.shift)}
                                 <small>{dateLabel(item.shift.startsAt, { weekday: 'long' })}</small>
                               </div>
                               <div>
-                                <h3>{item.shift.roleName}</h3>
+                                <h3>{item.shift.title || item.shift.roleName}</h3>
                                 <p>
                                   {item.slot.adultName ? (
                                     <>
@@ -450,6 +462,14 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                                 <p>{item.shift.instructions}</p>
                               </details>
                             )}
+                            <AssignmentAnswers shift={item.shift} slot={item.slot} />
+                            {canAct &&
+                              !ended &&
+                              (item.shift.sharedPrompt || item.shift.answerPrompt) && (
+                                <button className="md-link" onClick={() => setAnswers(item)}>
+                                  Skriv / ändra uppgifter
+                                </button>
+                              )}
                             {canAct && (
                               <div className="md-assignment-actions">
                                 <button
@@ -498,7 +518,11 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                   aria-label={multiDay ? 'Evenemangets bemanning' : 'Dagens bemanning'}
                 >
                   <h2>{multiDay ? 'Evenemangets bemanning' : 'Dagens bemanning'}</h2>
-                  <p className="md-roster-intro">Ni hjälps åt runt laget.</p>
+                  <p className="md-roster-intro">
+                    {details.bookingMode === 'self' && !event.cancelled && !eventPast
+                      ? 'Välj ett ledigt uppdrag och boka platsen. Ni bekräftar vem som kommer i samma steg.'
+                      : 'Ni hjälps åt runt laget.'}
+                  </p>
                   {roleGroups.length === 0 && (
                     <p className="md-empty-copy">
                       Inga pass är inlagda på det här evenemanget ännu.
@@ -515,6 +539,12 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                                 <span>
                                   {dateLabel(shift.startsAt, { day: 'numeric', month: 'short' })}
                                 </span>
+                              )}
+                              {shift.title && (
+                                <strong className="md-station-name">{shift.title}</strong>
+                              )}
+                              {shift.countsTowardBalance === false && (
+                                <small>Frivilligt bidrag · räknas inte som pass</small>
                               )}
                               <time dateTime={shift.startsAt}>{timeRange(shift)}</time>
                               {stockholmsDate(shift.startsAt) !== stockholmsDate(shift.endsAt) && (
@@ -558,6 +588,33 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                                         {slot.adultPhone}
                                       </a>
                                     )}
+                                    {slot.answer && shift.answerPrompt && (
+                                      <p className="md-answer">
+                                        {shift.answerPrompt}: {slot.answer}
+                                      </p>
+                                    )}
+                                    {!slot.familyId &&
+                                      !slot.locked &&
+                                      slot.status === 'pending' &&
+                                      details.bookingMode === 'self' &&
+                                      !event.cancelled &&
+                                      new Date(shift.startsAt).getTime() > now && (
+                                        <button
+                                          className="button secondary"
+                                          onClick={() =>
+                                            family
+                                              ? setConfirm({
+                                                  event,
+                                                  shift,
+                                                  slot: { ...slot, familyId: family.id },
+                                                  booking: true,
+                                                })
+                                              : setChoosingFamily(true)
+                                          }
+                                        >
+                                          {family ? 'Boka platsen' : 'Välj familj för att boka'}
+                                        </button>
+                                      )}
                                     <PublishedStatus
                                       slot={
                                         event.cancelled ? { ...slot, status: 'cancelled' } : slot
@@ -565,6 +622,12 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                                     />
                                   </div>
                                 ))
+                              )}
+                              {shift.sharedPrompt && (
+                                <p className="md-answer">
+                                  <strong>{shift.sharedPrompt}:</strong>{' '}
+                                  {shift.sharedAnswer || 'Inte bestämt ännu'}
+                                </p>
                               )}
                               {shift.instructions && (
                                 <details className="md-instructions">
@@ -618,7 +681,22 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
           onSubmit={async (command) => {
             await mutate(command);
             setConfirm(null);
-            tell('Tack! Passet är bekräftat.');
+            tell(
+              command.type === 'book'
+                ? 'Tack! Platsen är bokad och bekräftad.'
+                : 'Tack! Passet är bekräftat.',
+            );
+          }}
+        />
+      )}
+      {answers && (
+        <AnswersModal
+          item={answers}
+          onClose={() => setAnswers(null)}
+          onSubmit={async (command) => {
+            await mutate(command);
+            setAnswers(null);
+            tell('Uppgifterna är sparade.');
           }}
         />
       )}
@@ -690,7 +768,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
   );
 }
 const timeLabelForCalendar = (event: CalendarEvent) =>
-  `${dateLabel(event.startsAt, { hour: '2-digit', minute: '2-digit' })}–${dateLabel(event.endsAt, { hour: '2-digit', minute: '2-digit' })}`;
+  `${event.deadline ? 'Senast ' : ''}${dateLabel(event.startsAt, { hour: '2-digit', minute: '2-digit' })}${event.deadline ? '' : `–${dateLabel(event.endsAt, { hour: '2-digit', minute: '2-digit' })}`}`;
 
 function ConfirmModal({
   item,
@@ -710,11 +788,13 @@ function ConfirmModal({
   const [name, setName] = useState(initial?.name || item.slot.adultName || '');
   const [phone, setPhone] = useState(item.slot.adultPhone || initial?.phone || '');
   const [email, setEmail] = useState('');
+  const [answer, setAnswer] = useState(item.slot.answer || '');
+  const [sharedAnswer, setSharedAnswer] = useState(item.shift.sharedAnswer || '');
   const [accept, setAccept] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return (
-    <Modal title="Bekräfta familjens pass" onClose={onClose}>
+    <Modal title={item.booking ? 'Boka ett uppdrag' : 'Bekräfta familjens pass'} onClose={onClose}>
       <form
         className="modal-body form-stack"
         onSubmit={async (e) => {
@@ -723,7 +803,9 @@ function ConfirmModal({
           setError('');
           try {
             await onSubmit({
-              type: 'confirm',
+              type: item.booking ? 'book' : 'confirm',
+              ...(item.shift.answerPrompt ? { answer } : {}),
+              ...(item.shift.sharedPrompt ? { sharedAnswer } : {}),
               eventId: item.event.id,
               slotId: item.slot.id,
               revision: item.slot.revision,
@@ -741,11 +823,15 @@ function ConfirmModal({
         }}
       >
         <div className="compact-summary">
-          <strong>{item.shift.roleName}</strong>
+          <strong>{item.shift.title || item.shift.roleName}</strong>
           <span>
             {dateLabel(item.shift.startsAt)} · {timeRange(item.shift)}
           </span>
         </div>
+        {item.shift.instructions && <p className="md-description">{item.shift.instructions}</p>}
+        {item.shift.countsTowardBalance === false && (
+          <p className="hint">Frivilligt bidrag – påverkar inte familjens passräkning.</p>
+        )}
         {adults.length > 0 && (
           <label>
             Vem kommer?
@@ -811,6 +897,13 @@ function ConfirmModal({
           Mejladressen sparas på den som kommer och används för tilldelningar och påminnelser. Den
           visas inte för andra föräldrar.
         </p>
+        <AnswerFields
+          shift={item.shift}
+          answer={answer}
+          sharedAnswer={sharedAnswer}
+          setAnswer={setAnswer}
+          setSharedAnswer={setSharedAnswer}
+        />
         <label className="check-label">
           <input
             type="checkbox"
@@ -823,7 +916,7 @@ function ConfirmModal({
         {error && <Notice text={error} error />}
         <BusyButton busy={busy} className="button primary full" disabled={!accept} type="submit">
           <Check size={18} />
-          Bekräfta passet
+          {item.booking ? 'Boka och bekräfta' : 'Bekräfta passet'}
         </BusyButton>
       </form>
     </Modal>
@@ -865,7 +958,7 @@ function RequestModal({
         }}
       >
         <div className="compact-summary">
-          <strong>{item.shift.roleName}</strong>
+          <strong>{item.shift.title || item.shift.roleName}</strong>
           <span>
             {dateLabel(item.shift.startsAt)} · {timeRange(item.shift)}
           </span>
@@ -885,6 +978,128 @@ function RequestModal({
         {error && <Notice text={error} error />}
         <BusyButton busy={busy} className="button primary" type="submit">
           Skicka förfrågan
+        </BusyButton>
+      </form>
+    </Modal>
+  );
+}
+
+function AssignmentAnswers({ shift, slot }: { shift: Shift; slot: Slot }) {
+  return (
+    <div className="md-answers">
+      {shift.countsTowardBalance === false && (
+        <p className="md-muted">Frivilligt bidrag · räknas inte som pass</p>
+      )}
+      {shift.sharedPrompt && (
+        <p className="md-answer">
+          <strong>{shift.sharedPrompt}:</strong> {shift.sharedAnswer || 'Inte bestämt ännu'}
+        </p>
+      )}
+      {shift.answerPrompt && (
+        <p className="md-answer">
+          <strong>{shift.answerPrompt}:</strong> {slot.answer || 'Inte angivet ännu'}
+        </p>
+      )}
+    </div>
+  );
+}
+function AnswerFields({
+  shift,
+  answer,
+  sharedAnswer,
+  setAnswer,
+  setSharedAnswer,
+}: {
+  shift: Shift;
+  answer: string;
+  sharedAnswer: string;
+  setAnswer: (value: string) => void;
+  setSharedAnswer: (value: string) => void;
+}) {
+  return (
+    <>
+      {shift.sharedPrompt && (
+        <label>
+          {shift.sharedPrompt}
+          <textarea
+            rows={3}
+            maxLength={2000}
+            value={sharedAnswer}
+            onChange={(e) => setSharedAnswer(e.target.value)}
+          />
+          <span className="hint">
+            Gemensamt för stationen. Samordna med de andra som bokat här. Kan fyllas i senare.
+          </span>
+        </label>
+      )}
+      {shift.answerPrompt && (
+        <label>
+          {shift.answerPrompt}
+          <textarea
+            rows={3}
+            maxLength={2000}
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+          />
+          <span className="hint">Ditt svar visas i schemat. Kan fyllas i senare.</span>
+        </label>
+      )}
+    </>
+  );
+}
+function AnswersModal({
+  item,
+  onClose,
+  onSubmit,
+}: {
+  item: Selection;
+  onClose: () => void;
+  onSubmit: (command: PortalCommand) => Promise<void>;
+}) {
+  const [answer, setAnswer] = useState(item.slot.answer || '');
+  const [sharedAnswer, setSharedAnswer] = useState(item.shift.sharedAnswer || '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <Modal
+      title={item.shift.title || item.shift.roleName}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      <form
+        className="modal-body form-stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true);
+          setError('');
+          try {
+            await onSubmit({
+              type: 'update_answers',
+              eventId: item.event.id,
+              slotId: item.slot.id,
+              revision: item.slot.revision,
+              familyId: item.slot.familyId!,
+              ...(item.shift.answerPrompt ? { answer } : {}),
+              ...(item.shift.sharedPrompt ? { sharedAnswer } : {}),
+            });
+          } catch (e) {
+            setError((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <AnswerFields
+          shift={item.shift}
+          answer={answer}
+          sharedAnswer={sharedAnswer}
+          setAnswer={setAnswer}
+          setSharedAnswer={setSharedAnswer}
+        />
+        {error && <Notice text={error} error />}
+        <BusyButton busy={busy} type="submit" className="button primary">
+          Spara uppgifter
         </BusyButton>
       </form>
     </Modal>

@@ -740,3 +740,191 @@ describe('validation, copying and import', () => {
     expect(state.history[1].verified).toBe(false);
   });
 });
+
+describe('self booking, station answers and voluntary preparations', () => {
+  function openEvent() {
+    const state = fixture();
+    const draft = state.events[0].draft;
+    draft.bookingMode = 'self';
+    Object.assign(draft.shifts[0], {
+      title: 'Post 1',
+      group: 'Skogen',
+      sharedPrompt: 'Tema',
+      answerPrompt: 'Tar med',
+      endIsApproximate: true,
+    });
+    draft.shifts[0].slots = [blankSlot('slot-1'), blankSlot('slot-2')];
+    return published(state);
+  }
+  const booking: Extract<PortalCommand, { type: 'book' }> = {
+    type: 'book',
+    eventId: 'event',
+    slotId: 'slot-1',
+    revision: 1,
+    familyId: 'family-1',
+    adultId: 'adult-1-1',
+    adultName: 'Nora Bergström',
+    adultPhone: '0700000001',
+    adultEmail: 'nora@example.test',
+    sharedAnswer: 'Häxor',
+    answer: 'En lykta',
+  };
+  it('books and confirms atomically, stores email privately, and preserves bookings during auto planning', () => {
+    const original = openEvent();
+    const booked = applyCommand(original, booking, 'public', now);
+    expect(original.events[0].published!.shifts[0].slots[0].familyId).toBeUndefined();
+    for (const details of [booked.events[0].draft, booked.events[0].published!]) {
+      expect(details.shifts[0].slots[0]).toMatchObject({
+        familyId: 'family-1',
+        adultId: 'adult-1-1',
+        status: 'confirmed',
+        answer: 'En lykta',
+      });
+      expect(details.shifts[0].sharedAnswer).toBe('Häxor');
+    }
+    const projected = publicState(booked);
+    expect(JSON.stringify(projected)).not.toContain('nora@example.test');
+    expect(projected.events[0].published!.shifts[0].sharedAnswer).toBe('Häxor');
+    const planned = autoPlan(booked, 'event').state;
+    expect(planned.events[0].draft.shifts[0].slots[0]).toEqual(
+      booked.events[0].draft.shifts[0].slots[0],
+    );
+    expect(planned.events[0].draft.shifts[0].slots[1].familyId).toBeTruthy();
+    expect(balances(booked).find((b) => b.familyId === 'family-1')!.reserved).toBe(1);
+    expect(() => applyCommand(booked, { ...booking, familyId: 'family-2' }, 'public', now)).toThrow(
+      'inte längre ledig',
+    );
+  });
+  it.each([
+    'admin',
+    'cancelled',
+    'locked',
+    'past',
+    'inactive',
+    'external',
+    'draft-changed',
+    'revision',
+  ])('rejects self booking when %s and leaves state unchanged', (condition) => {
+    const state = openEvent();
+    const event = state.events[0];
+    const shift = event.published!.shifts[0];
+    if (condition === 'admin') delete event.published!.bookingMode;
+    if (condition === 'cancelled') event.cancelled = true;
+    if (condition === 'locked') shift.slots[0].locked = true;
+    if (condition === 'inactive') state.families[0].active = false;
+    if (condition === 'external') shift.externalTeam = 'Annat lag';
+    if (condition === 'draft-changed') event.draft.shifts[0].slots[0].familyId = 'family-2';
+    const before = clone(state);
+    expect(() =>
+      applyCommand(
+        state,
+        { ...booking, revision: condition === 'revision' ? 99 : 1 },
+        'public',
+        condition === 'past' ? '2030-01-01T12:00:00Z' : now,
+      ),
+    ).toThrow();
+    expect(state).toEqual(before);
+  });
+  it('rejects overlapping bookings for one adult without saving contact changes', () => {
+    let state = applyCommand(openEvent(), booking, 'public', now);
+    const before = clone(state);
+    expect(() =>
+      applyCommand(
+        state,
+        { ...booking, slotId: 'slot-2', adultEmail: 'changed@example.test' },
+        'public',
+        now,
+      ),
+    ).toThrow('Dubbelbokning');
+    expect(state).toEqual(before);
+  });
+  it('allows an exempt family to volunteer and admin to fill other vacancies manually', () => {
+    let state = openEvent();
+    state.families[0].exempt = true;
+    state = applyCommand(state, booking, 'public', now);
+    const event = clone(state.events[0]);
+    event.draft.shifts[0].slots[1].familyId = 'family-2';
+    state = applyCommand(state, { type: 'save_event', event }, 'admin', now);
+    state = applyCommand(state, { type: 'publish_event', eventId: 'event' }, 'admin', now);
+    expect(state.events[0].published!.shifts[0].slots.map((s) => s.status)).toEqual([
+      'confirmed',
+      'pending',
+    ]);
+  });
+  it('lets assigned families update answers without changing confirmation or overwriting divergent admin notes', () => {
+    let state = applyCommand(openEvent(), booking, 'public', now);
+    state.events[0].draft.shifts[0].sharedAnswer = 'Administratörens utkast';
+    const command: PortalCommand = {
+      type: 'update_answers',
+      eventId: 'event',
+      slotId: 'slot-1',
+      familyId: 'family-1',
+      revision: 1,
+      sharedAnswer: 'Spöken',
+      answer: 'Två lyktor',
+    };
+    state = applyCommand(state, command, 'public', now);
+    expect(state.events[0].published!.shifts[0].sharedAnswer).toBe('Spöken');
+    expect(state.events[0].draft.shifts[0].sharedAnswer).toBe('Administratörens utkast');
+    expect(state.events[0].published!.shifts[0].slots[0]).toMatchObject({
+      status: 'confirmed',
+      revision: 1,
+      answer: 'Två lyktor',
+    });
+    expect(() => applyCommand(state, { ...command, familyId: 'family-2' }, 'public', now)).toThrow(
+      'inte tilldelat',
+    );
+    expect(() => applyCommand(state, { ...command, revision: 2 }, 'public', now)).toThrow(
+      'ändrats',
+    );
+    const copy = applyCommand(
+      state,
+      { type: 'copy_event', eventId: 'event', newId: 'copy', startDate: '2026-11-04' },
+      'admin',
+      now,
+    ).events[1];
+    expect(copy.draft.bookingMode).toBe('self');
+    expect(copy.draft.shifts[0].sharedAnswer).toBeUndefined();
+    expect(copy.draft.shifts[0].slots[0].answer).toBeUndefined();
+  });
+  it('handles a preparation deadline before the event without overlap or fairness credit, including completion and copy', () => {
+    const state = fixture();
+    const shift = state.events[0].draft.shifts[0];
+    Object.assign(shift, {
+      kind: 'task',
+      countsTowardBalance: false,
+      title: 'Rekvisita',
+      startsAt: '2026-10-03T18:00:00+02:00',
+      endsAt: '2026-10-03T18:00:00+02:00',
+    });
+    const saved = applyCommand(state, { type: 'save_event', event: state.events[0] }, 'admin', now);
+    expect(validateEvent(saved, 'event')).toEqual([]);
+    const pub = published(saved);
+    expect(balances(pub).find((b) => b.familyId === 'family-1')!.total).toBe(0);
+    const done = applyCommand(
+      pub,
+      { type: 'complete_slot', eventId: 'event', slotId: 'slot-1', completed: true },
+      'admin',
+      '2026-10-04T12:00:00Z',
+    );
+    expect(done.events[0].published!.shifts[0].slots[0].status).toBe('completed');
+    expect(done.history).toEqual([]);
+    expect(balances(done).find((b) => b.familyId === 'family-1')!.total).toBe(0);
+    expect(
+      applyCommand(
+        done,
+        { type: 'complete_slot', eventId: 'event', slotId: 'slot-1', completed: true },
+        'admin',
+        '2026-10-04T12:00:00Z',
+      ),
+    ).toBe(done);
+    const copy = applyCommand(
+      done,
+      { type: 'copy_event', eventId: 'event', newId: 'copy', startDate: '2026-11-04' },
+      'admin',
+      now,
+    );
+    expect(copy.events[1].draft.shifts[0].startsAt).toBe('2026-11-03T17:00:00.000Z');
+    expect(copy.events[1].draft.shifts[0].endsAt).toBe(copy.events[1].draft.shifts[0].startsAt);
+  });
+});

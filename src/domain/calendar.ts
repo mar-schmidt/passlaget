@@ -78,7 +78,11 @@ function checked(event: CalendarEvent): void {
   ) {
     throw new TypeError('Kalenderhändelsen behöver ID och titel.');
   }
-  if (timestamp(event.endsAt) <= timestamp(event.startsAt))
+  if (
+    event.deadline
+      ? timestamp(event.endsAt) !== timestamp(event.startsAt)
+      : timestamp(event.endsAt) <= timestamp(event.startsAt)
+  )
     throw new RangeError('Sluttiden måste vara efter starttiden.');
   for (const value of [event.location, event.description, event.url]) {
     if (typeof value !== 'string') throw new TypeError('Kalenderinformationen måste vara text.');
@@ -127,7 +131,7 @@ export function toIcs(event: CalendarEvent): string {
       `UID:${encodeURIComponent(event.id)}@passlaget`,
       `DTSTAMP:${utc(new Date().toISOString())}`,
       `DTSTART:${utc(event.startsAt)}`,
-      `DTEND:${utc(event.endsAt)}`,
+      ...(event.deadline ? [] : [`DTEND:${utc(event.endsAt)}`]),
       `SUMMARY:${escapeText(event.title)}`,
       `LOCATION:${escapeText(event.location)}`,
       `DESCRIPTION:${escapeText(`${event.description}${event.url ? `\n\nAktuellt schema: ${event.url}` : ''}`)}`,

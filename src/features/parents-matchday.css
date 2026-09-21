@@ -870,3 +870,30 @@
     gap: 10px;
   }
 }
+
+.md-station-name {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 1rem;
+}
+.md-answer {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+.md-answers {
+  margin-block: 0.6rem;
+}
+.md-roster-people .button {
+  margin-block: 0.5rem;
+  min-height: 44px;
+}
+.md-own-time:has(+ div) {
+  overflow-wrap: anywhere;
+}
+
+.md-own-time.md-deadline {
+  font-size: 1rem;
+  line-height: 1.5;
+}

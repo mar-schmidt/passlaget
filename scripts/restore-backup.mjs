@@ -149,6 +149,8 @@ export function validateBackup(backup) {
   const slotOwners = new Map();
   const validateDetails = (details, eventId) => {
     object(details, 'event details');
+    if (details.bookingMode !== undefined && !['admin', 'self'].includes(details.bookingMode))
+      fail('event.bookingMode: invalid mode.');
     text(details.title, 'event.title');
     text(details.location, 'event.location', 200, true);
     text(details.description, 'event.description', 8000, true);
@@ -162,12 +164,29 @@ export function validateBackup(backup) {
       if (!roleIds.has(shift.roleId)) fail('shift.roleId: role is missing.');
       text(shift.roleName, 'shift.roleName');
       text(shift.instructions, 'shift.instructions', 8000, true);
-      range(shift, 'shift');
+      if (shift.kind !== undefined && !['shift', 'task'].includes(shift.kind))
+        fail('shift.kind: invalid kind.');
+      if (shift.kind === 'task') {
+        instant(shift.startsAt, 'task deadline');
+        instant(shift.endsAt, 'task deadline');
+        if (
+          Date.parse(shift.startsAt) !== Date.parse(shift.endsAt) ||
+          shift.countsTowardBalance !== false
+        )
+          fail('task: requires one deadline and no pass credit.');
+      } else range(shift, 'shift');
+      for (const key of ['title', 'group', 'sharedPrompt', 'answerPrompt'])
+        if (shift[key] !== undefined) text(shift[key], `shift.${key}`, 200, true);
+      if (shift.sharedAnswer !== undefined)
+        text(shift.sharedAnswer, 'shift.sharedAnswer', 2000, true);
+      for (const key of ['endIsApproximate', 'countsTowardBalance'])
+        if (shift[key] !== undefined) bool(shift[key], `shift.${key}`);
       if (shift.externalTeam !== undefined)
         text(shift.externalTeam, 'shift.externalTeam', 200, true);
       list(shift.slots, 'shift.slots', 100).forEach((slot) => {
         object(slot, 'slot');
         id(slot.id, 'slot.id');
+        if (slot.answer !== undefined) text(slot.answer, 'slot.answer', 2000, true);
         bool(slot.locked, 'slot.locked');
         integer(slot.revision, 'slot.revision');
         if (!statuses.has(slot.status)) fail('slot.status: unknown status.');

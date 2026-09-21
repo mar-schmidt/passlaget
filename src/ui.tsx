@@ -13,7 +13,9 @@ export const dateLabel = (
   );
 export const timeLabel = (date: string) => dateLabel(date, { hour: '2-digit', minute: '2-digit' });
 export const timeRange = (shift: Shift) =>
-  `${timeLabel(shift.startsAt)}–${timeLabel(shift.endsAt)}`;
+  shift.kind === 'task'
+    ? `Senast ${dateLabel(shift.startsAt)} kl. ${timeLabel(shift.startsAt)}`
+    : `${timeLabel(shift.startsAt)}–${shift.endIsApproximate ? 'ca ' : ''}${timeLabel(shift.endsAt)}`;
 export const toLocal = (date: string) =>
   formatInTimeZone(new Date(date), 'Europe/Stockholm', "yyyy-MM-dd'T'HH:mm");
 export const toIso = (local: string) => fromZonedTime(local, 'Europe/Stockholm').toISOString();

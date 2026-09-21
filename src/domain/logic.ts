@@ -236,6 +236,7 @@ function parseSlot(value: unknown): Slot {
     adultId: optionalId(item.adultId, 'Vuxen'),
     adultName: optionalText(item.adultName, 'Ansvarig vuxen'),
     adultPhone: item.adultPhone === undefined ? undefined : phone(item.adultPhone),
+    answer: item.answer === undefined ? undefined : text(item.answer, 'Svar', 2000, true),
     locked: boolean(item.locked, 'Låst plats'),
     revision: integer(item.revision, 'Version'),
     status,
@@ -251,8 +252,35 @@ function parseDetails(value: unknown): EventDetails {
       const shift = object(value, 'Pass');
       const startsAt = instant(shift.startsAt, 'Passets start');
       const endsAt = instant(shift.endsAt, 'Passets slut');
-      if (endsAt <= startsAt) failure('Passets sluttid måste vara efter starttiden.');
+      if (shift.kind !== undefined && shift.kind !== 'task' && shift.kind !== 'shift')
+        failure('Okänd uppgiftstyp.');
+      const task = shift.kind === 'task';
+      if (task ? endsAt !== startsAt : endsAt <= startsAt)
+        failure(
+          task
+            ? 'En förberedelse har en enda deadline.'
+            : 'Passets sluttid måste vara efter starttiden.',
+        );
       return {
+        kind: task ? 'task' : 'shift',
+        title: optionalText(shift.title, 'Stationens namn'),
+        group: optionalText(shift.group, 'Grupp'),
+        countsTowardBalance: task
+          ? false
+          : shift.countsTowardBalance === undefined
+            ? true
+            : boolean(shift.countsTowardBalance, 'Räknas i fördelningen'),
+        endIsApproximate: task
+          ? false
+          : shift.endIsApproximate === undefined
+            ? false
+            : boolean(shift.endIsApproximate, 'Ungefärlig sluttid'),
+        sharedPrompt: optionalText(shift.sharedPrompt, 'Gemensam fråga'),
+        sharedAnswer:
+          shift.sharedAnswer === undefined
+            ? undefined
+            : text(shift.sharedAnswer, 'Gemensamt svar', 2000, true),
+        answerPrompt: optionalText(shift.answerPrompt, 'Individuell fråga'),
         id: id(shift.id),
         roleId: id(shift.roleId, 'Uppgift'),
         roleName: text(shift.roleName, 'Uppgiftens namn'),
@@ -275,6 +303,12 @@ function parseDetails(value: unknown): EventDetails {
   if (shifts.reduce((count, shift) => count + shift.slots.length, 0) > 1000)
     failure('Ett evenemang kan ha högst 1 000 bemanningsplatser. Dela upp större arrangemang.');
   return {
+    bookingMode:
+      item.bookingMode === undefined || item.bookingMode === 'admin'
+        ? 'admin'
+        : item.bookingMode === 'self'
+          ? 'self'
+          : failure('Okänt bokningssätt.'),
     title: text(item.title, 'Evenemangets namn'),
     location: text(item.location, 'Plats', 500, true),
     startDate,
@@ -373,6 +407,9 @@ function context(details: EventDetails, shift: Shift, slot: Slot): string {
     timestamp(shift.startsAt),
     timestamp(shift.endsAt),
     shift.roleId,
+    normalized(shift.title),
+    shift.kind === 'task',
+    shift.countsTowardBalance !== false,
     normalized(shift.externalTeam),
     slot.familyId ?? '',
   ]);
@@ -442,7 +479,14 @@ export function balances(state: PortalState, eventId?: string): Balance[] {
       for (const slot of shift.slots) {
         const balance = slot.familyId ? result.get(slot.familyId) : undefined;
         const assignment = key(event.id, slot.id);
-        if (shift.externalTeam || !activeSlot(slot) || !balance || counted.has(assignment))
+        if (
+          shift.externalTeam ||
+          shift.countsTowardBalance === false ||
+          shift.kind === 'task' ||
+          !activeSlot(slot) ||
+          !balance ||
+          counted.has(assignment)
+        )
           continue;
         counted.add(assignment);
         balance.reserved += 1;
@@ -481,8 +525,9 @@ export function validateEvent(state: PortalState, eventId: string): string[] {
     if (!state.roles.some((role) => role.id === shift.roleId))
       errors.push(`Uppgiften ${shift.roleName} finns inte i registret.`);
     if (
-      stockholmParts(shift.startsAt).date < details.startDate ||
-      stockholmParts(shift.endsAt).date > details.endDate
+      shift.kind !== 'task' &&
+      (stockholmParts(shift.startsAt).date < details.startDate ||
+        stockholmParts(shift.endsAt).date > details.endDate)
     )
       errors.push(`${shift.roleName}: passet ligger utanför evenemangets datum.`);
     if (!shift.externalTeam && !shift.slots.length)
@@ -509,7 +554,7 @@ export function validateEvent(state: PortalState, eventId: string): string[] {
   const assignments = selection(state, eventId)
     .flatMap(({ event, details }) =>
       details.shifts
-        .filter((shift) => !shift.externalTeam)
+        .filter((shift) => !shift.externalTeam && shift.kind !== 'task')
         .flatMap((shift) =>
           shift.slots.filter(activeSlot).map((slot) => ({
             event,
@@ -551,6 +596,12 @@ export function autoPlan(state: PortalState, eventId: string): PlanningResult {
   );
   for (const shift of shifts) {
     if (shift.externalTeam) continue;
+    if (shift.kind === 'task' || shift.countsTowardBalance === false) {
+      notices.push(
+        `${shift.title || shift.roleName}: frivilliga bidrag lämnas för självbokning eller manuell tilldelning.`,
+      );
+      continue;
+    }
     for (const slot of shift.slots) {
       if (slot.familyId || slot.locked || slot.status !== 'pending') continue;
       const counts = new Map(balances(next, eventId).map((balance) => [balance.familyId, balance]));
@@ -567,6 +618,7 @@ export function autoPlan(state: PortalState, eventId: string): PlanningResult {
               details.shifts.some(
                 (other) =>
                   !other.externalTeam &&
+                  other.kind !== 'task' &&
                   overlaps(other, shift) &&
                   other.slots.some(
                     (otherSlot) =>
@@ -674,12 +726,21 @@ export function publicState(state: PortalState): PublicState {
       .filter((event) => event.published)
       .map((event) => {
         const details: EventDetails = {
+          bookingMode: event.published!.bookingMode,
           title: event.published!.title,
           location: event.published!.location,
           startDate: event.published!.startDate,
           endDate: event.published!.endDate,
           description: event.published!.description,
           shifts: event.published!.shifts.map((shift) => ({
+            kind: shift.kind,
+            title: shift.title,
+            group: shift.group,
+            countsTowardBalance: shift.countsTowardBalance,
+            endIsApproximate: shift.endIsApproximate,
+            sharedPrompt: shift.sharedPrompt,
+            sharedAnswer: shift.sharedPrompt ? shift.sharedAnswer : undefined,
+            answerPrompt: shift.answerPrompt,
             id: shift.id,
             roleId: shift.roleId,
             roleName: shift.roleName,
@@ -697,7 +758,8 @@ export function publicState(state: PortalState): PublicState {
               status: slot.status,
               confirmedAt: slot.confirmedAt,
               confirmedRevision: slot.confirmedRevision,
-              locked: false,
+              answer: shift.answerPrompt ? slot.answer : undefined,
+              locked: slot.locked,
             })),
           })),
         };
@@ -759,6 +821,33 @@ function checkPublishedSlot(
   return { event, ...found };
 }
 
+function updateAnswers(event: PortalEvent, shift: Shift, slot: Slot, input: RecordValue): void {
+  const draft = findSlot(event.draft, slot.id);
+  if (input.answer !== undefined) {
+    if (!shift.answerPrompt) failure('Uppdraget har ingen individuell fråga.');
+    const answer = text(input.answer, 'Svar', 2000, true);
+    if (
+      draft &&
+      draft.slot.familyId === slot.familyId &&
+      draft.shift.answerPrompt === shift.answerPrompt &&
+      draft.slot.answer === slot.answer
+    )
+      draft.slot.answer = answer;
+    slot.answer = answer;
+  }
+  if (input.sharedAnswer !== undefined) {
+    if (!shift.sharedPrompt) failure('Stationen har ingen gemensam fråga.');
+    const answer = text(input.sharedAnswer, 'Gemensamt svar', 2000, true);
+    if (
+      draft &&
+      draft.shift.sharedPrompt === shift.sharedPrompt &&
+      draft.shift.sharedAnswer === shift.sharedAnswer
+    )
+      draft.shift.sharedAnswer = answer;
+    shift.sharedAnswer = answer;
+  }
+}
+
 /** Mutates only the reducer's private clone; bulk calls commit all outcomes or none. */
 function completeOne(
   next: PortalState,
@@ -779,19 +868,19 @@ function completeOne(
   const status: SlotStatus = completed ? 'completed' : 'absent';
   if (
     found.slot.status === status &&
-    (completed
+    (completed && found.shift.countsTowardBalance !== false && found.shift.kind !== 'task'
       ? next.history.some((entry) => entry.assignmentId === assignmentId && entry.verified)
       : !next.history.some((entry) => entry.assignmentId === assignmentId))
   )
     return false;
   next.history = next.history.filter((entry) => entry.assignmentId !== assignmentId);
-  if (completed)
+  if (completed && found.shift.countsTowardBalance !== false && found.shift.kind !== 'task')
     next.history.push({
       id: `history:${assignmentId}`,
       assignmentId,
       familyId: found.slot.familyId,
       eventTitle: event.published!.title,
-      roleName: found.shift.roleName,
+      roleName: found.shift.title || found.shift.roleName,
       startsAt: found.shift.startsAt,
       endsAt: found.shift.endsAt,
       source: 'portal',
@@ -818,9 +907,12 @@ export function applyCommand(
   const input = object(command, 'Åtgärd');
   const type = text(input.type, 'Åtgärd', 40);
   if (actor !== 'admin' && actor !== 'public') failure('Okänd behörighet.', 403);
-  if (actor === 'public' && type !== 'confirm' && type !== 'request_change')
+  if (actor === 'public' && !['confirm', 'book', 'update_answers', 'request_change'].includes(type))
     failure('Åtgärden kräver administratörsinloggning.', 403);
-  if (!adminCommands.has(type) && type !== 'confirm' && type !== 'request_change')
+  if (
+    !adminCommands.has(type) &&
+    !['confirm', 'book', 'update_answers', 'request_change'].includes(type)
+  )
     failure('Okänd åtgärd.');
   const at = instant(now, 'Tidpunkt');
   let next = clone(state);
@@ -869,6 +961,8 @@ export function applyCommand(
         for (const slot of shift.slots) {
           const prior = findSlot(existing?.draft, slot.id);
           canonicalAdult(next, slot, prior?.slot);
+          if (!slot.familyId || (prior && prior.slot.familyId !== slot.familyId))
+            delete slot.answer;
           if (
             prior &&
             existing &&
@@ -930,6 +1024,7 @@ export function applyCommand(
       try {
         draft.shifts = draft.shifts.map((shift, shiftIndex) => ({
           ...shift,
+          sharedAnswer: undefined,
           id: `${newId}-shift-${shiftIndex + 1}`,
           startsAt: shiftStockholmDate(shift.startsAt, days),
           endsAt: shiftStockholmDate(shift.endsAt, days),
@@ -1041,7 +1136,58 @@ export function applyCommand(
       summary = `${event.draft.title} ställdes in.`;
       break;
     }
+    case 'update_answers': {
+      const { event, shift, slot } = checkPublishedSlot(next, input);
+      if (timestamp(shift.endsAt) <= timestamp(at)) failure('Uppdraget är avslutat.', 409);
+      updateAnswers(event, shift, slot, input);
+      event.updatedAt = at;
+      summary = 'Uppdragets svar uppdaterades.';
+      break;
+    }
+    case 'book':
     case 'confirm': {
+      let bookingOld: Slot | undefined;
+      if (type === 'book') {
+        const event = eventById(next, id(input.eventId, 'Evenemang'));
+        if (!event.published || event.cancelled || event.published.bookingMode !== 'self')
+          failure('Evenemanget är inte öppet för självbokning.', 409);
+        const found = findSlot(event.published, id(input.slotId, 'Bemanningsplats'));
+        if (
+          !found ||
+          found.shift.externalTeam ||
+          found.slot.familyId ||
+          found.slot.locked ||
+          found.slot.status !== 'pending'
+        )
+          failure('Platsen är inte längre ledig. Välj en annan plats.', 409);
+        if (found.slot.revision !== integer(input.revision, 'Version'))
+          failure('Schemat har ändrats. Uppdatera och försök igen.', 409);
+        if (timestamp(found.shift.startsAt) <= timestamp(at))
+          failure('Bokningstiden har gått ut.', 409);
+        const family = next.families.find((f) => f.id === id(input.familyId, 'Familj'));
+        if (!family || !eligibleFamily(next, family)) failure('Välj en aktiv familj.', 409);
+        if (
+          found.shift.kind !== 'task' &&
+          (family.unavailable ?? []).some((t) => overlaps(t, found.shift))
+        )
+          failure('Familjen har anmält förhinder under den här tiden.', 409);
+        const draft = findSlot(event.draft, found.slot.id);
+        if (
+          !draft ||
+          draft.slot.familyId ||
+          draft.slot.locked ||
+          draft.slot.status !== 'pending' ||
+          context(event.draft, draft.shift, draft.slot) !==
+            context(event.published, found.shift, found.slot)
+        )
+          failure(
+            'Lagföräldern håller på att ändra den här platsen. Välj en annan plats eller kontakta lagföräldern.',
+            409,
+          );
+        bookingOld = clone(found.slot);
+        found.slot.familyId = family.id;
+        draft.slot.familyId = family.id;
+      }
       const { event, shift, slot } = checkPublishedSlot(next, input);
       let adultId = optionalId(input.adultId, 'Vuxen');
       const adultName = text(input.adultName, 'Ansvarig vuxen');
@@ -1085,7 +1231,9 @@ export function applyCommand(
         slot.adultName === adultName &&
         slot.adultPhone === adultPhone &&
         slot.confirmedRevision === slot.revision &&
-        !emailChanged
+        !emailChanged &&
+        (input.answer === undefined || input.answer === slot.answer) &&
+        (input.sharedAnswer === undefined || input.sharedAnswer === shift.sharedAnswer)
       )
         return state;
       const old = clone(slot);
@@ -1112,8 +1260,11 @@ export function applyCommand(
         error.startsWith('Dubbelbokning:'),
       );
       if (conflicts.length) failure(conflicts.join('\n'), 409);
+      updateAnswers(event, shift, slot, input);
       event.updatedAt = at;
-      summary = 'Ett pass bekräftades utan identitetskontroll.';
+      summary = bookingOld
+        ? 'En familj bokade och bekräftade ett ledigt uppdrag.'
+        : 'Ett pass bekräftades utan identitetskontroll.';
       break;
     }
     case 'remind_confirmation': {

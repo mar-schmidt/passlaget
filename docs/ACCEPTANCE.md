@@ -74,3 +74,11 @@ Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera und
 - Bekräftade pass får inga nya automatiska påminnelser. En redan köad påminnelse stoppas om passet har bekräftats när utskicket förbereds, även för äldre köposter och prenumerationer.
 - Andra obekräftade pass inom samma familj behåller sina påminnelser. Ändrade pass som kräver en ny bekräftelse kan påminnas igen.
 - 139 tester passerar (121 i Vitest och 18 för arbetare/återställning), samt SQL-kontrollerna och produktionsbygget. Regressionstester täcker både skapande och förberedelse av automatiska och manuella påminnelser samt familjer med flera pass.
+
+## Självbokning och förberedelser 2026-09-21
+
+- 158 automatiserade tester passerar: 139 i Vitest och 19 för mejlarbetare/återställning. SQL-kontroller och produktionsbygge passerar.
+- Testerna täcker bokning från föräldraflödet, obligatorisk kontaktinformation, skydd mot upptagen plats och versionskonflikt, dubbelbokning av samma vuxen, låsta och inställda platser, adminstyrda evenemang, samt bevarande av bokningar vid automatisk och manuell tilldelning.
+- Stationernas gemensamma svar och varje förälders individuella svar bevaras och kan ändras utan ny bekräftelse. Kopiering rensar bokningar och svar.
+- Förberedelser kan ha deadline före evenemanget. De undantas från dubbelbokningskontroll och passräkning, även efter genomförande. Deadline flyttas med svensk tidszon vid kopiering och stöds i säkerhetskopiering, kalenderexport och mejl.
+- Mobilens faktiska kalenderappar och visuell webbläsargranskning har samma tidigare dokumenterade begränsning. Det nya föräldraflödet har verifierats med automatiserade komponenttester.

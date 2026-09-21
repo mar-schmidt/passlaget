@@ -473,3 +473,23 @@ test(
     }
   },
 );
+
+test('round trips preparation deadlines, self booking and parent answers', () => {
+  const backup = fixture();
+  for (const details of [backup.state.events[0].draft, backup.state.events[0].published]) {
+    details.bookingMode = 'self';
+    Object.assign(details.shifts[0], {
+      kind: 'task',
+      countsTowardBalance: false,
+      title: 'Bakning',
+      answerPrompt: 'Vad bakar du?',
+      endsAt: details.shifts[0].startsAt,
+    });
+    details.shifts[0].slots[0].answer = 'Kanelbullar';
+  }
+  assert.doesNotThrow(() => validateBackup(backup));
+  const encoded = buildRestoreSql(backup).match(/decode\('([^']+)', 'base64'\)/)[1];
+  assert.deepEqual(JSON.parse(Buffer.from(encoded, 'base64').toString()), backup);
+  backup.state.events[0].draft.shifts[0].countsTowardBalance = true;
+  assert.throws(() => validateBackup(backup), /no pass credit/);
+});

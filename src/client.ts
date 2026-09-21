@@ -52,9 +52,10 @@ export async function api<T = Record<string, unknown>>(body: Record<string, unkn
   const result = await response.json().catch(() => ({ error: 'Servern kunde inte svara.' }));
   if (!response.ok)
     throw new Error(
-      response.status === 409
-        ? 'Schemat har ändrats. Hämta den senaste versionen och försök igen.'
-        : result.error || 'Åtgärden kunde inte sparas. Försök igen.',
+      result.error ||
+        (response.status === 409
+          ? 'Schemat har ändrats. Hämta den senaste versionen och försök igen.'
+          : 'Åtgärden kunde inte sparas. Försök igen.'),
     );
   return result;
 }
