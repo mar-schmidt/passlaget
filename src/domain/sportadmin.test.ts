@@ -134,3 +134,15 @@ test('public booking and publishing cannot bypass changed kallelsesvar', () => {
     'aktuellt ja-svar',
   );
 });
+
+test('lost integration settings never silently remove existing booking restrictions', () => {
+  const s = fixture();
+  s.events[0].attendance = {
+    title: 'Match',
+    checkedAt: new Date().toISOString(),
+    eligibleChildIds: [s.children[0].id],
+  };
+  const next = applyAttendance(s, {});
+  expect(next.events[0].attendance?.error).toBeTruthy();
+  expect(attendanceEligible(next, next.events[0], s.children[0].familyId)).toBe(false);
+});

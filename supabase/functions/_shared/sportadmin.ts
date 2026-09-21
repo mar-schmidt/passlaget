@@ -18,6 +18,7 @@ interface Connection {
   players?: Participant[];
   mapping?: Record<string, number>;
   links?: Record<string, Activity>;
+  unlinkedEvents?: string[];
   snapshots?: Record<string, { players: Participant[]; checkedAt: string; error?: string }>;
   lastSyncAt?: string;
   error?: string;
@@ -46,7 +47,9 @@ export function applyAttendance(state: PortalState, c: Connection): PortalState 
   for (const event of next.events) {
     const link = c.links?.[event.id];
     if (!link) {
-      delete event.attendance;
+      if (c.unlinkedEvents?.includes(event.id)) delete event.attendance;
+      else if (event.attendance)
+        event.attendance.error = 'Kopplingen behöver återställas. Välj SportAdmin-aktivitet igen.';
       continue;
     }
     const snapshot = c.snapshots?.[event.id];
@@ -117,6 +120,7 @@ export async function sportadminAction(
         throw new HttpError(400, 'Välj ett sparat evenemang.');
       delete c.links?.[body.eventId];
       delete c.snapshots?.[body.eventId];
+      c.unlinkedEvents = [...new Set([...(c.unlinkedEvents || []), body.eventId])];
       return await finish();
     }
     if (op === 'connect') {
@@ -250,6 +254,7 @@ export async function sportadminAction(
         const rows = await api.participants(activity);
         collect(rows);
         c.links[body.eventId] = activity;
+        c.unlinkedEvents = (c.unlinkedEvents || []).filter((id) => id !== body.eventId);
         c.snapshots[body.eventId] = { players: rows, checkedAt: new Date().toISOString() };
       }
     }
