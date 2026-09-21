@@ -463,7 +463,7 @@ describe('matchday parent view', () => {
         adultId: 'adult-two',
       }),
     ]);
-    await user.click(screen.getByRole('button', { name: 'Byt familj' }));
+    await user.click(screen.getByRole('button', { name: 'Byt spelare' }));
     expect(screen.getByRole('searchbox', { name: 'Sök barn eller familj' })).toBeTruthy();
   });
 
@@ -594,7 +594,7 @@ describe('administration across public actions', () => {
   it('reloads full admin data after a public confirmation instead of losing private drafts', async () => {
     const user = userEvent.setup();
     render(<App />);
-    await screen.findByRole('heading', { name: 'Lagets bemanning' });
+    await screen.findByRole('heading', { name: 'Välj ditt barn för att komma vidare' });
     await user.click(screen.getByRole('button', { name: 'Administration' }));
     await screen.findByRole('heading', { name: 'En insats för laget.' });
     await waitFor(() =>
@@ -654,7 +654,7 @@ describe('portal without email', () => {
     client.getSession.mockResolvedValue({ data: { session: null } });
     const user = userEvent.setup();
     render(<App />);
-    await screen.findByRole('heading', { name: 'Lagets bemanning' });
+    await screen.findByRole('heading', { name: 'Välj ditt barn för att komma vidare' });
     await user.click(screen.getByRole('button', { name: 'Administration' }));
     const dialog = screen.getByRole('dialog', { name: 'Logga in som lagförälder' });
     expect(within(dialog).queryByRole('button', { name: 'Glömt lösenord?' })).toBeNull();

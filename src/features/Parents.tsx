@@ -169,9 +169,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
     <div className="matchday-page">
       {showChooser ? (
         <section className="md-welcome" aria-labelledby="family-welcome-title">
-          <p className="md-kicker">Tillsammans runt laget</p>
-          <h1 id="family-welcome-title">Lagets bemanning</h1>
-          <p className="md-lead">Vilket barn hejar du på?</p>
+          <h1 id="family-welcome-title">Välj ditt barn för att komma vidare</h1>
           <p className="md-muted">
             Välj barn eller familj för att se era uppdrag och berätta vem som kommer. Syskon delar
             på ansvaret.
@@ -244,7 +242,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
               )}
             </p>
             <button type="button" className="md-link" onClick={() => setChoosingFamily(true)}>
-              {family ? 'Byt familj' : 'Välj familj'}
+              {family ? 'Byt spelare' : 'Välj familj'}
             </button>
           </div>
           {family && allAssignments.length > 0 && (
@@ -646,7 +644,6 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
             </>
           ) : (
             <section className="md-no-events">
-              <p className="md-kicker">Tillsammans runt laget</p>
               <h1>Lagets bemanning</h1>
               <h2>Inget schema är publicerat ännu</h2>
               <p>Nästa tilldelning dyker upp här när planeringen är klar.</p>
@@ -657,9 +654,8 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
       <footer className="md-help">
         <HeartHandshake size={23} aria-hidden="true" />
         <div>
-          <strong>Behöver du hjälp?</strong>
           <span>
-            Kontakta {state.team.contactName || 'lagföräldern'}
+            <a href="mailto:karl.marcus.schmidt@gmail.com">Kontakta Lagförälder</a>
             {state.team.contactPhone && (
               <>
                 {' '}
@@ -671,7 +667,6 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
             )}
           </span>
         </div>
-        <p>Tack för att ni är med.</p>
       </footer>
       {confirm && (
         <ConfirmModal

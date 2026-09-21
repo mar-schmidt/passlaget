@@ -180,15 +180,20 @@ export default function App() {
         <aside id="admin-navigation" className={`sidebar ${menu ? 'open' : ''}`}>
           <a
             href="#/foraldrar"
-            className="brand"
+            className="brand club-brand"
             onClick={(e) => {
               e.preventDefault();
               navigate('foraldrar');
             }}
           >
-            <span>
-              passlaget<span className="brand-dot">.</span>
-            </span>
+            <img
+              className="club-crest"
+              src={`${import.meta.env.BASE_URL}landvetter-is.png`}
+              alt=""
+              width={48}
+              height={46}
+            />
+            <span>Landvetter IS P2018</span>
           </a>
           <button
             className="icon-button sidebar-close"
@@ -244,18 +249,21 @@ export default function App() {
           <header className="public-masthead">
             <a
               href="#/foraldrar"
-              className="brand"
+              className="brand club-brand"
               onClick={(e) => {
                 e.preventDefault();
                 navigate('foraldrar');
               }}
             >
-              passlaget<span className="brand-dot">.</span>
+              <img
+                className="club-crest"
+                src={`${import.meta.env.BASE_URL}landvetter-is.png`}
+                alt=""
+                width={48}
+                height={46}
+              />
+              <span>Landvetter IS P2018</span>
             </a>
-            <div className="public-team">
-              <strong>{state?.team.clubName || 'Landvetter IS'}</strong>
-              <span>{state?.team.name || 'P2018'}</span>
-            </div>
           </header>
         ) : (
           <header className="topbar">
@@ -358,7 +366,6 @@ export default function App() {
           ) : null}
         </main>
         <footer className="page-footer">
-          <span>Tack för att ni hjälps åt.</span>
           {parentView ? (
             <div className="public-footer-actions">
               <button className="text-button" onClick={() => refresh()}>

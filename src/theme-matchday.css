@@ -891,3 +891,24 @@ th {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Keep the club identity legible in the mobile header and narrow admin sidebar. */
+.brand.club-brand {
+  gap: 12px;
+  font-size: 20px;
+  letter-spacing: -0.5px;
+  line-height: 1.25;
+  min-width: 0;
+}
+.brand.club-brand .club-crest {
+  flex: 0 0 auto;
+  width: 48px;
+  height: 46px;
+  object-fit: contain;
+}
+.public-masthead .brand.club-brand {
+  font-size: clamp(20px, 4.8vw, 28px);
+}
+.sidebar .brand.club-brand {
+  padding-inline: 0;
+}
