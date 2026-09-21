@@ -56,7 +56,7 @@ Den lokala versionen har tester för regler, gränssnitt, kalender, behörighets
 
 ## Aktuell avgränsning
 
-Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera under bygget. Därför är visuell webbläsargranskning och faktiska mobilkalendrar ännu inte godkända. Komponenten testas separat med en simulerad DOM. Supabase-organisation, databas, Auth och Edge-funktion är driftsatta. Familjeimporten behöver granskas innan laget börjar använda portalen. Avsändarkonto är valt och en privat installationsfil är förberedd, men kontoägarens Google-godkännande och prov med verkligt mejl återstår. Ingen mejlaktivering har gjorts.
+Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera under bygget. Därför är visuell webbläsargranskning och faktiska mobilkalendrar ännu inte godkända. Komponenten testas separat med en simulerad DOM. Supabase-organisation, databas, Auth och Edge-funktion är driftsatta. Familjeimporten behöver granskas innan laget börjar använda portalen. Kontoägaren har godkänt Google-kopplingen och utskick har aktiverats 2026-09-21. Prov med leverans av ett verkligt mejl återstår.
 
 ## Mejladress och enskild påminnelse
 

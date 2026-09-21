@@ -35,10 +35,10 @@ En ansluten portal använder Supabase Auth för administration. Föräldrasidan 
 
 ## Kostnadsfri drift
 
-Portalen använder **GitHub Pages + Supabase Free**. Ingen köpt domän eller betalplan behövs. Ett anslutet Supabase-projekt krävs för gemensam lagring. Mejlfunktionen väntar tills avsändare har valts; Google Apps Script/MailApp finns förberett som ett kostnadsfritt alternativ. Portalen fungerar utan mejl. Gratiskvoter och eventuellt pausat Supabase-projekt kan ge tillfälliga avbrott.
+Portalen använder **GitHub Pages + Supabase Free**. Ingen köpt domän eller betalplan behövs. Ett anslutet Supabase-projekt krävs för gemensam lagring. Google Apps Script/MailApp används som kostnadsfri mejlavsändare. Portalen fungerar även utan mejl. Gratiskvoter och eventuellt pausat Supabase-projekt kan ge tillfälliga avbrott.
 
 1. Följ [driftguiden](docs/DEPLOYMENT.md) för GitHub Pages och Supabase Free.
-2. Behåll `MAIL_ENABLED=false` på servern och `VITE_MAIL_ENABLED=false` i webbbygget. Då skapas inga mejljobb och föräldrar erbjuds inte mejlpåminnelser. Även lösenordsåterställning via mejl väntar. [Mejlguiden](docs/MAIL.md) används först vid senare aktivering.
+2. Vid en ny installation: behåll `MAIL_ENABLED=false` på servern och `VITE_MAIL_ENABLED=false` i webbbygget tills avsändaren är ansluten enligt [mejlguiden](docs/MAIL.md). I avstängt läge skapas inga mejljobb och lösenordsåterställning via mejl väntar. Landvetter-installationens avsändare har godkänts och mejl är aktiverat från 2026-09-21.
 3. Granska och importera det privata underlaget enligt [importguiden](docs/IMPORT.md).
 4. Genomför [kontrollerna före pilot](docs/ACCEPTANCE.md), inklusive faktiska mobilkalendrar. Utskick kontrolleras först när mejl ska aktiveras.
 

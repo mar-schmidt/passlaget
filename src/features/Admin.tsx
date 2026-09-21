@@ -2590,7 +2590,7 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
         {!status?.messages.length ? (
           <Empty icon={<Mail size={30} />} title="Inga utskick ännu">
             {activeMail
-              ? 'Mejl visas här när prenumerationer har aktiverats och uppdrag publicerats.'
+              ? 'Mejl visas här när uppdrag publiceras till familjer med registrerad mejladress.'
               : status?.enabled === false
                 ? 'Mejlfunktionen är inte aktiverad.'
                 : status

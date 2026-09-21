@@ -1,10 +1,10 @@
 # Kostnadsfria mejlpåminnelser
 
-**Mejl aktiveras senare.** Portalen driftsätts först med `MAIL_ENABLED=false` och `VITE_MAIL_ENABLED=false`. Inga nya utskick köas i det läget, och användaren erbjuds inte prenumeration eller lösenordsåterställning via mejl. Nedan beskrivs Google-alternativet. Kontoägaren behöver godkänna Google-behörigheten innan avsändaren aktiveras.
+**Landvetter-installationens mejl är aktiverat från 2026-09-21**, efter kontoägarens Google-godkännande. En ny installation ska däremot börja med `MAIL_ENABLED=false` och `VITE_MAIL_ENABLED=false`. Inga nya utskick köas i avstängt läge och lösenordsåterställning via mejl väntar. Nedan beskrivs hur Google-avsändaren konfigureras.
 
 Mejl skickas från ett Google-konto med Google Apps Script och MailApp. Ingen köpt domän behövs. Ett vanligt Gmail-konto har för närvarande en kvot på **100 mottagare per dag**. Kvoten delas med kontots andra skript. När kvoten tar slut väntar återstående mejl i kön. Detta är ingen garanti för omedelbar leverans; kalenderknappen fungerar oberoende av mejltjänsten.
 
-Koden i repositoryt gör inga utskick eller kontoändringar av sig själv. Aktivering görs när Supabase är konfigurerat och testmottagare har valts.
+Koden i repositoryt gör inga utskick eller kontoändringar av sig själv. Aktivering görs när Supabase är konfigurerat och kontoägaren har godkänt avsändaren. Verkliga testmejl skickas bara till en uttryckligen vald testmottagare.
 
 ## Kontaktuppgifter och mottagare
 
@@ -20,7 +20,7 @@ De här verksamhetsmeddelandena använder sparade kontaktadresser direkt. Den ä
 
 1. Följ projektets instruktioner för Supabase Free och publicera Edge-funktionen `portal`.
 2. Skapa en slumpmässig, minst 32 tecken lång hemlighet. Sätt den som `MAIL_WORKER_SECRET` på servern och som `WORKER_SECRET` i Google-skriptets egenskaper. Lägg aldrig värdet i koden, GitHub Pages eller ett offentligt ärende. Hemligheten får endast ge åtkomst till utskickskön; använd inte Supabases `service_role` som worker-hemlighet. Serverns separata `MAIL_TOKEN_SECRET` ska ha ett annat slumpmässigt värde.
-3. När avsändaren är konfigurerad och kontoägaren godkänt en testmottagare, sätt `MAIL_ENABLED=true` på servern och `VITE_MAIL_ENABLED=true` i ett nytt webbbygge. Granska eventuell gammal kö innan arbetaren startas. Händelser under den avstängda perioden får inga retroaktiva notiser.
+3. När avsändaren är konfigurerad och kontoägaren godkänt Google-kopplingen, sätt `MAIL_ENABLED=true` på servern och `VITE_MAIL_ENABLED=true` i ett nytt webbbygge. Granska eventuell gammal kö innan arbetaren startas. Händelser under den avstängda perioden får inga retroaktiva notiser. Leverans till en inkorg kontrolleras separat med en uttryckligen vald testmottagare.
 4. Servern ska acceptera arbetarkontraktet nedan och kunna prioritera återställningsmejl och adressbekräftelser före vanliga påminnelser.
 
 ## Installera Google-skriptet
