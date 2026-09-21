@@ -1,3 +1,4 @@
+import { attendanceEligible } from '../domain/logic';
 import { useState } from 'react';
 import {
   ArrowRight,
@@ -516,6 +517,13 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                   aria-label={multiDay ? 'Evenemangets bemanning' : 'Dagens bemanning'}
                 >
                   <h2>{multiDay ? 'Evenemangets bemanning' : 'Dagens bemanning'}</h2>
+                  {event.attendance && family && !attendanceEligible(state, event, family.id) && (
+                    <p className="md-request-note">
+                      För att boka en ledig plats behöver ett barn i familjen vara anmält i
+                      SportAdmin. Kontakta lagföräldern om ni redan har svarat ja. Era befintliga
+                      pass gäller fortfarande.
+                    </p>
+                  )}
                   <p className="md-roster-intro">
                     {details.bookingMode === 'self' && !event.cancelled && !eventPast
                       ? 'Välj ett ledigt uppdrag och boka platsen. Ni bekräftar vem som kommer i samma steg.'
@@ -599,6 +607,9 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                                       new Date(shift.startsAt).getTime() > now && (
                                         <button
                                           className="button secondary"
+                                          disabled={
+                                            !!family && !attendanceEligible(state, event, family.id)
+                                          }
                                           onClick={() =>
                                             family
                                               ? setConfirm({
@@ -610,7 +621,11 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                                               : setChoosingFamily(true)
                                           }
                                         >
-                                          {family ? 'Boka platsen' : 'Välj familj för att boka'}
+                                          {family
+                                            ? attendanceEligible(state, event, family.id)
+                                              ? 'Boka platsen'
+                                              : 'Ja-svar i SportAdmin behövs'
+                                            : 'Välj familj för att boka'}
                                         </button>
                                       )}
                                     <PublishedStatus

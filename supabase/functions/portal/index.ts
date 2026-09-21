@@ -1,3 +1,4 @@
+import { sportadminAction } from '../_shared/sportadmin.ts';
 import { createClient } from '@supabase/supabase-js';
 import { applyCommand, publicState, DomainError } from '../../../src/domain/logic.ts';
 import { buildContactMailJobs, validContactMailEntries } from '../_shared/contact-mail.ts';
@@ -71,6 +72,15 @@ async function rpc(op: string, args: Record<string, unknown> = {}): Promise<any>
       'backend_unavailable',
     );
   }
+  return data;
+}
+async function sportRpc(op: string, args: Record<string, unknown> = {}): Promise<any> {
+  const { data, error } = await db.rpc('portal_sportadmin', { p_op: op, p_args: args });
+  if (error)
+    throw new HttpError(
+      error.code === '40001' ? 409 : 503,
+      'SportAdmin-uppdateringen kunde inte sparas. Försök igen.',
+    );
   return data;
 }
 async function loadTeam(slug: unknown): Promise<PortalState> {
@@ -268,7 +278,30 @@ export async function handle(request: Request): Promise<Response> {
       }
       throw new HttpError(400, 'Okänd åtgärd.');
     }
+    if (action === 'sportadmin_cron') {
+      const key = env('SPORTADMIN_WORKER_SECRET');
+      if (key.length < 32 || !secretMatches(body.workerSecret, key))
+        throw new HttpError(401, 'Ogiltig synkbehörighet.');
+      const teams = await sportRpc('list');
+      // Sequential, bounded work. Failed connections remain visible to their own administrator.
+      let updated = 0;
+      for (const team of teams.slice(0, 20)) {
+        try {
+          await sportadminAction(
+            { operation: 'sync' },
+            await loadTeam(team.slug),
+            sportRpc,
+            loadTeam,
+          );
+          updated++;
+        } catch {
+          /* retry at next run */
+        }
+      }
+      return response({ updated });
+    }
     const globalLimits: Record<string, [number, number]> = {
+      sportadmin: [60, 60],
       read: [600, 60],
       command: [180, 60],
       request_recovery: [20, 3600],
@@ -340,6 +373,17 @@ export async function handle(request: Request): Promise<Response> {
       return response({ ok: true });
     }
     const state = await loadTeam(body.teamSlug);
+    if (action === 'sportadmin') {
+      await requireAdmin(request, state);
+      await rateLimit(
+        request,
+        'sportadmin_team',
+        state.team.id,
+        body.operation === 'connect' ? 5 : 30,
+        body.operation === 'connect' ? 3600 : 60,
+      );
+      return response(await sportadminAction(body, state, sportRpc, loadTeam));
+    }
     if (action === 'read') {
       if (body.admin === true) {
         await requireAdmin(request, state);

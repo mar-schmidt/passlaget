@@ -55,8 +55,40 @@ for (const role of ['anon', 'authenticated']) {
   );
   await db.exec('reset role');
 }
+// Integration RPC and raw tokens are unavailable to browsers, even signed-in admins.
+for (const role of ['anon', 'authenticated']) {
+  await db.exec(`set role ${role}`);
+  await assert.rejects(
+    () => db.query('select public.portal_sportadmin(\'read\',\'{"team_id":"t1"}\')'),
+    /permission denied/,
+  );
+  await assert.rejects(
+    () => db.query('select data from portal_private.sportadmin_connections'),
+    /permission denied/,
+  );
+  await db.exec('reset role');
+}
 await db.exec('set role service_role');
 assert.equal((await rpc('read', { slug: 'team-one' })).state.team.id, 't1');
+const sa = async (op, args) =>
+  (await db.query('select public.portal_sportadmin($1,$2) as result', [op, JSON.stringify(args)]))
+    .rows[0].result;
+const lease = await sa('acquire', { team_id: 't1' });
+assert.ok(lease.lease);
+assert.equal(await sa('acquire', { team_id: 't1' }), null);
+await assert.rejects(
+  () => sa('save', { team_id: 't1', lease: admin, data: { session: 'secret' } }),
+  /CONNECTION_BUSY/,
+);
+await sa('save', { team_id: 't1', lease: lease.lease, data: { session: 'secret' } });
+assert.equal(await sa('read', { team_id: 't2' }), null);
+await sa('finish', { team_id: 't1', lease: lease.lease, data: { session: 'rotated' } });
+assert.equal((await sa('read', { team_id: 't1' })).session, 'rotated');
+await assert.rejects(
+  () => sa('save', { team_id: 't1', lease: lease.lease, data: {} }),
+  /CONNECTION_BUSY/,
+);
+
 assert.equal(await rpc('admin', { team_id: 't1', user_id: admin }), true);
 assert.equal(await rpc('admin', { team_id: 't2', user_id: admin }), false);
 assert.equal(await rpc('rate_limit', { key: 'test', limit: 1, window_seconds: 60 }), true);

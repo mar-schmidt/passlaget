@@ -1,3 +1,5 @@
+import SportAdminPanel from './SportAdmin';
+import { attendanceEligible, attendanceWarnings } from '../domain/logic';
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
@@ -53,11 +55,13 @@ import {
   uid,
 } from '../ui';
 
-type Page = 'foraldrar' | 'oversikt' | 'evenemang' | 'familjer' | 'fordelning' | 'paminnelser';
+type Page =
+  'foraldrar' | 'oversikt' | 'evenemang' | 'familjer' | 'fordelning' | 'paminnelser' | 'sportadmin';
 type Mutate = (command: PortalCommand, expectedVersion?: number) => Promise<PortalState>;
 type Tell = (text: string, error?: boolean) => void;
 interface Props {
   state: PortalState;
+  refresh?: () => Promise<void>;
   page: Page;
   navigate: (page: Page) => void;
   mutate: Mutate;
@@ -109,7 +113,14 @@ function newSlot(): Slot {
 const hasDraft = (event: PortalEvent) =>
   !!event.published && JSON.stringify(event.draft) !== JSON.stringify(event.published);
 
-export default function Admin({ state, page, navigate, mutate, tell }: Props) {
+export default function Admin({
+  state,
+  page,
+  navigate,
+  mutate,
+  tell,
+  refresh = async () => {},
+}: Props) {
   const [editing, setEditing] = useState<PortalEvent | null>(null);
   const [completion, setCompletion] = useState<string | null>(null);
   const [copying, setCopying] = useState<PortalEvent | null>(null);
@@ -236,6 +247,22 @@ export default function Admin({ state, page, navigate, mutate, tell }: Props) {
   };
   return (
     <>
+      {page === 'oversikt' && state.events.some((e) => attendanceWarnings(state, e).length > 0) && (
+        <div className="notice" role="alert">
+          <strong>Kontrollera kallelsesvaren</strong>
+          {state.events
+            .filter((e) => attendanceWarnings(state, e).length > 0)
+            .map((e) => (
+              <p key={e.id}>
+                {e.draft.title}: {attendanceWarnings(state, e).join(', ')}. Befintliga pass ligger
+                kvar.{' '}
+                <button className="text-button" onClick={() => navigate('sportadmin')}>
+                  Visa SportAdmin
+                </button>
+              </p>
+            ))}
+        </div>
+      )}
       {page === 'oversikt' && (
         <>
           {heading(
@@ -485,6 +512,7 @@ export default function Admin({ state, page, navigate, mutate, tell }: Props) {
       )}
       {page === 'familjer' && <Families state={state} mutate={mutate} tell={tell} />}
       {page === 'fordelning' && <Fairness state={state} mutate={mutate} tell={tell} />}
+      {page === 'sportadmin' && <SportAdminPanel state={state} refresh={refresh} />}
       {page === 'paminnelser' && <Reminders state={state} mutate={mutate} tell={tell} />}
       {editing && (
         <EventEditor
@@ -1042,12 +1070,20 @@ function EventEditor({
                           >
                             <option value="">Välj familj · ledig plats</option>
                             {state.families
-                              .filter((f) => f.active || f.id === slot.familyId)
+                              .filter(
+                                (f) =>
+                                  (f.active && attendanceEligible(state, event, f.id)) ||
+                                  f.id === slot.familyId,
+                              )
                               .map((f) => (
                                 <option key={f.id} value={f.id}>
                                   {familyLabel(state, f.id)}
                                   {f.exempt ? ' · undantagen' : ''}
-                                  {!f.active ? ' · inaktiv' : ''}
+                                  {!f.active
+                                    ? ' · inaktiv'
+                                    : !attendanceEligible(state, event, f.id)
+                                      ? ' · kontrollera kallelsesvar'
+                                      : ''}
                                 </option>
                               ))}
                           </select>

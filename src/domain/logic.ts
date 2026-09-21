@@ -441,6 +441,35 @@ function validateRelations(state: PortalState): void {
   for (const row of state.history)
     if (!families.has(row.familyId)) failure('En historikpost hänvisar till en okänd familj.');
 }
+export function attendanceEligible(
+  state: Pick<PortalState, 'children'>,
+  event: PortalEvent,
+  familyId: string,
+  now = Date.now(),
+): boolean {
+  const a = event.attendance;
+  if (!a) return true;
+  const age = now - Date.parse(a.checkedAt);
+  if (a.error || !Number.isFinite(age) || age < -60_000 || age > 2 * 3600_000) return false;
+  return a.eligibleChildIds
+    ? state.children.some(
+        (c) => c.active && c.familyId === familyId && a.eligibleChildIds!.includes(c.id),
+      )
+    : !!a.eligibleFamilyIds?.includes(familyId);
+}
+export function attendanceWarnings(state: PortalState, event: PortalEvent): string[] {
+  if (!event.attendance) return [];
+  const warnings = new Set<string>();
+  for (const shift of [...event.draft.shifts, ...(event.published?.shifts || [])])
+    for (const slot of shift.slots)
+      if (
+        slot.familyId &&
+        ['pending', 'confirmed'].includes(slot.status) &&
+        !attendanceEligible(state, event, slot.familyId)
+      )
+        warnings.add(state.families.find((f) => f.id === slot.familyId)?.label || slot.familyId);
+  return [...warnings];
+}
 function eligibleFamily(state: PortalState, family: Family): boolean {
   return (
     family.active && state.children.some((child) => child.familyId === family.id && child.active)
@@ -609,6 +638,7 @@ export function autoPlan(state: PortalState, eventId: string): PlanningResult {
         .filter(
           (family) =>
             eligibleFamily(next, family) &&
+            attendanceEligible(next, event, family.id) &&
             !family.exempt &&
             !(family.unavailable ?? []).some((unavailable) => overlaps(unavailable, shift)),
         )
@@ -765,6 +795,18 @@ export function publicState(state: PortalState): PublicState {
         };
         return {
           id: event.id,
+          ...(event.attendance
+            ? {
+                attendance: {
+                  title: event.attendance.title,
+                  checkedAt: event.attendance.checkedAt,
+                  error: event.attendance.error ? 'Uppdatering behövs' : undefined,
+                  eligibleFamilyIds: families
+                    .filter((f) => attendanceEligible(state, event, f.id))
+                    .map((f) => f.id),
+                },
+              }
+            : {}),
           draft: clone(details),
           published: details,
           publication: event.publication,
@@ -961,6 +1003,16 @@ export function applyCommand(
         for (const slot of shift.slots) {
           const prior = findSlot(existing?.draft, slot.id);
           canonicalAdult(next, slot, prior?.slot);
+          if (
+            slot.familyId &&
+            slot.familyId !== prior?.slot.familyId &&
+            existing &&
+            !attendanceEligible(next, existing, slot.familyId, timestamp(at))
+          )
+            failure(
+              'Familjen har inget aktivt barn med ett aktuellt ja-svar i SportAdmin. Uppdatera kallelsesvaren.',
+              409,
+            );
           if (!slot.familyId || (prior && prior.slot.familyId !== slot.familyId))
             delete slot.answer;
           if (
@@ -1057,6 +1109,17 @@ export function applyCommand(
     case 'publish_event': {
       const event = eventById(next, id(input.eventId, 'Evenemang'));
       if (event.cancelled) failure('Ett inställt evenemang kan inte publiceras igen.', 409);
+      for (const shift of event.draft.shifts)
+        for (const slot of shift.slots)
+          if (
+            slot.familyId &&
+            findSlot(event.published, slot.id)?.slot.familyId !== slot.familyId &&
+            !attendanceEligible(next, event, slot.familyId, timestamp(at))
+          )
+            failure(
+              'Ett nytt pass har tilldelats en familj utan aktuellt ja-svar i SportAdmin. Uppdatera bemanningen.',
+              409,
+            );
       const errors = validateEvent(next, event.id);
       if (errors.length) failure(errors.join('\n'), 409);
       const previous = event.published;
@@ -1166,6 +1229,11 @@ export function applyCommand(
           failure('Bokningstiden har gått ut.', 409);
         const family = next.families.find((f) => f.id === id(input.familyId, 'Familj'));
         if (!family || !eligibleFamily(next, family)) failure('Välj en aktiv familj.', 409);
+        if (!attendanceEligible(next, event, family.id, timestamp(at)))
+          failure(
+            'Ditt barn behöver vara anmält i SportAdmin innan du kan boka. Kontakta lagföräldern om uppgiften inte stämmer.',
+            409,
+          );
         if (
           found.shift.kind !== 'task' &&
           (family.unavailable ?? []).some((t) => overlaps(t, found.shift))

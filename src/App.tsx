@@ -23,12 +23,19 @@ import Parents from './features/Parents';
 import Admin from './features/Admin';
 import { BusyButton, Modal, Notice } from './ui';
 
-type Page = 'foraldrar' | 'oversikt' | 'evenemang' | 'familjer' | 'fordelning' | 'paminnelser';
+type Page =
+  'foraldrar' | 'oversikt' | 'evenemang' | 'familjer' | 'fordelning' | 'paminnelser' | 'sportadmin';
 const route = (): Page => {
   const value = location.hash.replace(/^#\//, '');
-  return ['foraldrar', 'oversikt', 'evenemang', 'familjer', 'fordelning', 'paminnelser'].includes(
-    value,
-  )
+  return [
+    'foraldrar',
+    'oversikt',
+    'evenemang',
+    'familjer',
+    'fordelning',
+    'paminnelser',
+    'sportadmin',
+  ].includes(value)
     ? (value as Page)
     : 'foraldrar';
 };
@@ -36,6 +43,7 @@ const adminPages = [
   { id: 'oversikt', name: 'Översikt', icon: LayoutDashboard },
   { id: 'evenemang', name: 'Evenemang', icon: CalendarDays },
   { id: 'familjer', name: 'Barn & föräldrar', icon: Users },
+  { id: 'sportadmin', name: 'SportAdmin', icon: Users },
   { id: 'fordelning', name: 'Rättvis fördelning', icon: ChartNoAxesCombined },
   { id: 'paminnelser', name: mailEnabled ? 'Mejl & drift' : 'Kontakt & drift', icon: Mail },
 ] as const;
@@ -361,7 +369,14 @@ export default function App() {
                 tell={tell}
               />
             ) : (
-              <Admin state={state} page={page} navigate={navigate} mutate={mutate} tell={tell} />
+              <Admin
+                refresh={() => refresh()}
+                state={state}
+                page={page}
+                navigate={navigate}
+                mutate={mutate}
+                tell={tell}
+              />
             )
           ) : null}
         </main>

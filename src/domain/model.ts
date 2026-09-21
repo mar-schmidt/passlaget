@@ -77,7 +77,15 @@ export interface EventDetails {
   description: string;
   shifts: Shift[];
 }
+export interface SportAdminAttendance {
+  title: string;
+  checkedAt: string;
+  error?: string;
+  eligibleChildIds?: string[];
+  eligibleFamilyIds?: string[];
+}
 export interface PortalEvent {
+  attendance?: SportAdminAttendance;
   id: string;
   draft: EventDetails;
   published?: EventDetails;
