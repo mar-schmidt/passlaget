@@ -1560,7 +1560,7 @@ function ConfirmationReminder({
     !!slot.reminderRequestedAt &&
     Date.now() - Date.parse(slot.reminderRequestedAt) < 10 * 60 * 1000;
   const reason = !recipients.length
-    ? 'Mejladress saknas – lägg till under Barn & föräldrar.'
+    ? 'Mejladress saknas – lägg till under Spelare & föräldrar.'
     : !mailEnabled
       ? 'Mejlutskick är inte aktiverade ännu.'
       : recent
@@ -1629,18 +1629,17 @@ function Families({ state, mutate, tell }: { state: PortalState; mutate: Mutate;
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">MÄNNISKORNA BAKOM LAGET</p>
-          <h1>Barn & föräldrar</h1>
-          <p className="muted">En gemensam familj, ett gemensamt ansvar – också för syskon.</p>
+          <h1>Spelare & föräldrar</h1>
+          <p className="muted">Här hittar du lagets spelare och deras föräldrar.</p>
         </div>
         <button
-          className="button primary"
+          className="button primary add-player-button"
           onClick={() =>
             setEditing({ id: uid(), label: '', active: true, exempt: false, unavailable: [] })
           }
         >
           <Plus size={18} />
-          Lägg till familj
+          Lägg till spelare
         </button>
       </div>
       <div className="toolbar">
@@ -1772,7 +1771,7 @@ function FamilyEditor({
   const patchAdult = (id: string, value: Partial<Adult>) =>
     setAdults((old) => old.map((a) => (a.id === id ? { ...a, ...value } : a)));
   return (
-    <Modal title={family.label ? 'Redigera familj' : 'Lägg till familj'} onClose={onClose} wide>
+    <Modal title={family.label ? 'Redigera familj' : 'Lägg till spelare'} onClose={onClose} wide>
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -2855,7 +2854,7 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
                 </div>
                 <p>
                   Mejladressen sparas när föräldern bekräftar ett pass. Du kan också lägga till den
-                  under Barn & föräldrar. Adressen visas inte för andra familjer.
+                  under Spelare & föräldrar. Adressen visas inte för andra familjer.
                 </p>
                 <p>
                   Utskick läggs i kö när uppdrag publiceras eller ändras. Automatiska påminnelser
