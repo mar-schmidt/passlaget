@@ -46,6 +46,39 @@ interface Props {
 const stockholmsDate = (date: string) =>
   dateLabel(date, { year: 'numeric', month: '2-digit', day: '2-digit' });
 
+function parentEventDates(event: PortalEvent, familyId?: string) {
+  const details = event.published!;
+  const assigned = familyId
+    ? details.shifts.filter(
+        (shift) => !shift.externalTeam && shift.slots.some((slot) => slot.familyId === familyId),
+      )
+    : [];
+  const active = assigned.filter((shift) =>
+    shift.slots.some((slot) => slot.familyId === familyId && slot.status !== 'cancelled'),
+  );
+  // Keep the family's original dates visible when all of its assignments are cancelled.
+  const relevant = active.length ? active : assigned;
+  const dates = new Map<string, string>();
+  for (const shift of relevant) {
+    const start = stockholmsDate(shift.startsAt);
+    const end = shift.kind === 'task' ? start : stockholmsDate(shift.endsAt);
+    dates.set(start, [dates.get(start) || end, end].sort().at(-1)!);
+  }
+  return {
+    own: relevant.length > 0,
+    ranges: dates.size
+      ? [...dates].sort(([a], [b]) => a.localeCompare(b)).map(([start, end]) => ({ start, end }))
+      : [{ start: details.startDate, end: details.endDate }],
+  };
+}
+
+function dateRangeLabel({ start, end }: { start: string; end: string }) {
+  const label = dateLabel(start, { day: 'numeric', month: 'short', year: 'numeric' });
+  return start === end
+    ? label
+    : `${label}–${dateLabel(end, { day: 'numeric', month: 'short', year: 'numeric' })}`;
+}
+
 function PublishedStatus({ slot }: { slot: Slot }) {
   return slot.status === 'cancelled' ? (
     <span className="badge cancelled">
@@ -103,6 +136,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
   const details = event?.published;
   const familyHasPass = !!family && familyHasStaffingPass(details, family.id);
   const ownAssignments = allAssignments.filter((item) => item.event.id === event?.id);
+  const posterDates = event ? parentEventDates(event, family?.id) : undefined;
   const multiDay = Boolean(details && details.startDate !== details.endDate);
   const eventPast = Boolean(details && details.endDate < today);
   const showChooser = choosingFamily || (!family && !showPublic);
@@ -300,12 +334,8 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
               >
                 {published.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {dateLabel(item.published!.startDate, {
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}{' '}
-                    · {item.published!.title}
+                    {parentEventDates(item, family?.id).ranges.map(dateRangeLabel).join(', ')} ·{' '}
+                    {item.published!.title}
                     {item.cancelled ? ' · Inställt' : ''}
                   </option>
                 ))}
@@ -315,22 +345,27 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
           {event && details ? (
             <>
               <header className="md-poster">
-                <div className="md-date" aria-hidden="true">
-                  <span className="md-day">{dateLabel(details.startDate, { day: '2-digit' })}</span>
-                  <span className="md-month">
-                    {dateLabel(details.startDate, { month: 'long' })}
-                  </span>
-                  <span className="md-weekday">
-                    {dateLabel(details.startDate, { weekday: 'long' })}
-                  </span>
-                  <span className="md-year">
-                    {dateLabel(details.startDate, { year: 'numeric' })}
-                  </span>
-                  {multiDay && (
-                    <span className="md-date-end">
-                      till {dateLabel(details.endDate, { day: 'numeric', month: 'short' })}
-                    </span>
-                  )}
+                <div
+                  className="md-dates"
+                  role="list"
+                  aria-label={posterDates?.own ? 'Familjens datum' : 'Evenemangets datum'}
+                >
+                  {posterDates?.ranges.map(({ start, end }) => (
+                    <div className="md-date" role="listitem" key={start}>
+                      <span className="sr-only">{dateRangeLabel({ start, end })}</span>
+                      <div className="md-date-face" aria-hidden="true">
+                        <span className="md-day">{dateLabel(start, { day: '2-digit' })}</span>
+                        <span className="md-month">{dateLabel(start, { month: 'long' })}</span>
+                        <span className="md-weekday">{dateLabel(start, { weekday: 'long' })}</span>
+                        <span className="md-year">{dateLabel(start, { year: 'numeric' })}</span>
+                        {start !== end && (
+                          <span className="md-date-end">
+                            till {dateLabel(end, { day: 'numeric', month: 'short' })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
                 <div className="md-event-heading">
                   <p className="md-kicker">
@@ -338,19 +373,11 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                       ? 'Inställt evenemang'
                       : eventPast
                         ? 'Tidigare evenemang'
-                        : 'Vi gör det tillsammans'}
+                        : posterDates?.own
+                          ? 'Din familjs datum'
+                          : 'Vi gör det tillsammans'}
                   </p>
                   <h1>{details.title}</h1>
-                  <p className="sr-only">
-                    {dateLabel(details.startDate, {
-                      weekday: 'long',
-                      day: 'numeric',
-                      month: 'long',
-                      year: 'numeric',
-                    })}
-                    {multiDay &&
-                      ` till ${dateLabel(details.endDate, { day: 'numeric', month: 'long', year: 'numeric' })}`}
-                  </p>
                   <p className="md-place">
                     <MapPin size={17} aria-hidden="true" />
                     {details.location || 'Plats meddelas senare'}

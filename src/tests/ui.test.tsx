@@ -379,6 +379,91 @@ describe('parent actions', () => {
 });
 
 describe('matchday parent view', () => {
+  it('uses the family shift date in the poster and event picker for a week-long event', async () => {
+    const cafe = publishedEvent('cafe', 'Cafébemanning vecka 40', '2030-10-04');
+    cafe.published!.startDate = '2030-09-28';
+    server.events = [cafe, publishedEvent('later', 'Senare cup', '2030-11-01')];
+    const props = { state: server, setFamilyId: vi.fn(), mutate: vi.fn(), tell: vi.fn() };
+    const view = render(<Parents {...props} familyId="family-one" />);
+    const dates = screen.getByRole('list', { name: 'Familjens datum' });
+    expect(within(dates).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(dates).getByText('04')).toBeTruthy();
+    expect(within(dates).getByText('oktober')).toBeTruthy();
+    expect(within(dates).queryByText('28')).toBeNull();
+    expect(
+      screen.getByRole('option', { name: '4 okt. 2030 · Cafébemanning vecka 40' }),
+    ).toBeTruthy();
+
+    // Switching to an unassigned family restores the event's full dates.
+    view.rerender(<Parents {...props} familyId="family-two" />);
+    const fullDates = screen.getByRole('list', { name: 'Evenemangets datum' });
+    expect(within(fullDates).getByText('28')).toBeTruthy();
+    expect(within(fullDates).getByText('till 4 okt.')).toBeTruthy();
+
+    view.rerender(<Parents {...props} familyId="" />);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Visa hela schemat' }));
+    expect(
+      within(screen.getByRole('list', { name: 'Evenemangets datum' })).getByText('28'),
+    ).toBeTruthy();
+  });
+
+  it('shows separate family dates for preparations and staffing without implying days in between', () => {
+    const halloween = publishedEvent('halloween', 'Spökvandring', '2030-10-23');
+    const details = halloween.published!;
+    const shift = details.shifts[0];
+    details.shifts.push({
+      ...structuredClone(shift),
+      id: 'preparation',
+      kind: 'task',
+      title: 'Ordna rekvisita',
+      startsAt: '2030-10-21T16:00:00Z',
+      endsAt: '2030-10-21T16:00:00Z',
+      slots: [{ ...shift.slots[0], id: 'preparation-slot' }],
+    });
+    details.shifts.push({
+      ...structuredClone(details.shifts[1]),
+      id: 'another-preparation',
+      slots: [{ ...shift.slots[0], id: 'another-preparation-slot' }],
+    });
+    server.events = [halloween];
+    render(
+      <Parents
+        state={server}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    const cards = within(screen.getByRole('list', { name: 'Familjens datum' })).getAllByRole(
+      'listitem',
+    );
+    expect(cards).toHaveLength(2);
+    expect(within(cards[0]).getByText('21')).toBeTruthy();
+    expect(within(cards[1]).getByText('23')).toBeTruthy();
+    expect(cards.some((card) => card.textContent?.includes('till'))).toBe(false);
+  });
+
+  it('uses Swedish local dates and shows the end date when a family shift crosses midnight', () => {
+    const details = server.events[0].published!;
+    details.startDate = '2030-06-10';
+    details.endDate = '2030-06-17';
+    details.shifts[0].startsAt = '2030-06-14T22:30:00Z';
+    details.shifts[0].endsAt = '2030-06-15T23:00:00Z';
+    render(
+      <Parents
+        state={server}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    const dates = screen.getByRole('list', { name: 'Familjens datum' });
+    expect(within(dates).getByText('15')).toBeTruthy();
+    expect(within(dates).getByText('till 16 juni')).toBeTruthy();
+  });
+
   it('opens the shared schedule without a family and offers one way back to family selection', async () => {
     const user = userEvent.setup();
     render(
