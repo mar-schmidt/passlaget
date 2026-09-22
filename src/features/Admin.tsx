@@ -37,7 +37,14 @@ import type {
   Shift,
   Slot,
 } from '../domain/model';
-import { assignmentContacts, autoPlan, balances, validateEvent } from '../domain/logic';
+import {
+  assignmentContacts,
+  autoPlan,
+  balances,
+  familyHasStaffingPass,
+  familyPassLimitErrors,
+  validateEvent,
+} from '../domain/logic';
 import { api, isDemo, mailEnabled, mailStatus, type MailStatus } from '../client';
 import {
   BusyButton,
@@ -647,6 +654,14 @@ function EventEditor({
   const patchShift = (id: string, value: Partial<Shift>) =>
     patch({ shifts: details.shifts.map((s) => (s.id === id ? { ...s, ...value } : s)) });
   function assign(shift: Shift, index: number, familyId: string) {
+    if (
+      familyId &&
+      shift.kind !== 'task' &&
+      familyHasStaffingPass(details, familyId, shift.slots[index].id)
+    ) {
+      setError('Familjen har redan ett bemanningspass på evenemanget. Välj en annan familj.');
+      return;
+    }
     const slots = shift.slots.map((slot, i) =>
       i === index
         ? {
@@ -939,6 +954,7 @@ function EventEditor({
                   {currentCount.filled} av {currentCount.total} platser bemannade
                 </strong>
                 <p>Välj familj själv eller låt Passlaget fördela de lediga platserna.</p>
+                <p>Högst ett bemanningspass per familj och evenemang.</p>
                 {details.shifts.some((s) => s.kind === 'task') && (
                   <p>
                     {details.shifts
@@ -962,6 +978,9 @@ function EventEditor({
                 Fördela lediga pass
               </BusyButton>
             </div>
+            {familyPassLimitErrors(state, details).map((message) => (
+              <Notice key={message} error text={message} />
+            ))}
             {
               <label className="quick-title">
                 Evenemangets namn
@@ -1218,6 +1237,8 @@ function EventEditor({
                                 (f) =>
                                   (f.active &&
                                     (!linkChanged || activityId === null) &&
+                                    (shift.kind === 'task' ||
+                                      !familyHasStaffingPass(details, f.id, slot.id)) &&
                                     attendanceEligible(state, selectionEvent, f.id)) ||
                                   f.id === slot.familyId,
                               )

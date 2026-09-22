@@ -2,9 +2,9 @@
 
 Under evenemangets **Grunduppgifter → Hur bokas uppdragen?** väljer administratören om familjerna får boka lediga platser själva. Det gäller först när schemat publiceras. Standard för befintliga och nya evenemang är att administratören tilldelar.
 
-Föräldern väljer familj på den gemensamma sidan och trycker **Boka platsen**. Namn, telefon, mejl och godkännande krävs. Bokningen blir direkt bekräftad. En upptagen, låst, inställd eller påbörjad plats kan inte bokas. Två samtidiga bokningar kan inte ta samma plats. Undantagna familjer får frivilligt boka. Överlappande pass för samma vuxen nekas.
+Föräldern väljer familj på den gemensamma sidan och trycker **Boka platsen**. Namn, telefon, mejl och godkännande krävs. Bokningen blir direkt bekräftad. En upptagen, låst, inställd eller påbörjad plats kan inte bokas. Två samtidiga bokningar kan inte ta samma plats. Undantagna familjer får frivilligt boka. Varje familj får högst ett bemanningspass per evenemang, även med flera vuxna eller syskon. Ett befintligt pass i publicerat schema eller utkast spärrar ytterligare självbokning. Frivilliga förberedelser (`kind: task`) får göras utöver passet. Överlappande pass för samma vuxen i olika evenemang nekas också.
 
-Administratören kan fortfarande tilldela valfri familj och använda **Fördela lediga pass**. Befintliga bokningar och låsta platser bevaras. Frivilliga bidrag lämnas för självbokning eller manuell tilldelning.
+Administratören kan tilldela en tillgänglig familj och använda **Fördela lediga pass**. Familjer som redan har ett bemanningspass på evenemanget kan inte få ytterligare ett. Befintliga bokningar och låsta platser bevaras. Om familjerna inte räcker lämnas platser tomma. Äldre dubbletter markeras i redigeraren och måste rättas innan publicering; oförändrade dubbletter hindrar inte att en rättning sparas i flera steg. Frivilliga bidrag lämnas för självbokning eller manuell tilldelning.
 
 Varje pass kan ha eget stationsnamn, grupp, instruktioner och ungefärlig sluttid. Grupp används för att samla exempelvis Skogen, A-plan och Förberedelser i föräldraschemat. Stationsnamnet visas även i kalender, mejl och genomförandehistorik.
 

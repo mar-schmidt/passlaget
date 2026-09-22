@@ -126,7 +126,7 @@ describe('fairness and planning', () => {
     expect(planned.find((item) => item.familyId === 'family-3')!.reserved).toBe(0);
   });
 
-  it('uses all history and can choose the same low-balance family for consecutive slots', () => {
+  it('uses history to choose the first family but never gives it a second pass in the same event', () => {
     const state = fixture();
     twoShifts(state, [blankSlot('slot-1'), blankSlot('slot-2')]);
     state.history = [
@@ -139,12 +139,82 @@ describe('fairness and planning', () => {
     const planned = autoPlan(state, 'event');
     expect(planned.state.events[0].draft.shifts.map((shift) => shift.slots[0].familyId)).toEqual([
       'family-2',
-      'family-2',
+      'family-1',
     ]);
     expect(
       balances(planned.state, 'event').find((item) => item.familyId === 'family-2')!.reserved,
-    ).toBe(2);
+    ).toBe(1);
     expect(state).toEqual(before);
+  });
+
+  it('leaves excess places vacant and keeps one pass per family on repeated planning', () => {
+    const state = fixture();
+    twoShifts(state, [blankSlot('slot-1'), blankSlot('slot-2')]);
+    state.events[0].draft.shifts[1].slots.push(blankSlot('slot-3'));
+    state.families[2].exempt = true;
+    const first = autoPlan(state, 'event');
+    const slots = first.state.events[0].draft.shifts.flatMap((s) => s.slots);
+    expect(slots.map((s) => s.familyId)).toEqual(['family-1', 'family-2', undefined]);
+    expect(first.notices.join(' ')).toContain('utan pass på evenemanget, platsen är tom');
+    expect(autoPlan(first.state, 'event').state).toEqual(first.state);
+  });
+
+  it.each(['pending', 'confirmed', 'completed', 'absent'] as const)(
+    'reserves the family allowance for an existing later %s pass, including a locked place',
+    (status) => {
+      const state = fixture();
+      twoShifts(state, [
+        blankSlot('slot-1'),
+        { ...blankSlot('slot-2', 'family-1'), status, locked: true },
+      ]);
+      state.families[1].exempt = state.families[2].exempt = true;
+      const result = autoPlan(state, 'event').state.events[0].draft;
+      expect(result.shifts[0].slots[0].familyId).toBeUndefined();
+      expect(result.shifts[1].slots[0]).toMatchObject({
+        familyId: 'family-1',
+        status,
+        locked: true,
+      });
+    },
+  );
+
+  it('does not consume the event allowance for a cancelled pass or voluntary preparation', () => {
+    for (const preparation of [false, true]) {
+      const state = fixture();
+      twoShifts(state, [
+        { ...blankSlot('slot-1', 'family-1'), status: preparation ? 'confirmed' : 'cancelled' },
+        blankSlot('slot-2'),
+      ]);
+      if (preparation) state.events[0].draft.shifts[0].kind = 'task';
+      state.families[1].exempt = state.families[2].exempt = true;
+      expect(autoPlan(state, 'event').state.events[0].draft.shifts[1].slots[0].familyId).toBe(
+        'family-1',
+      );
+    }
+  });
+
+  it('applies the limit across days of an event but allows another non-overlapping event', () => {
+    const state = fixture();
+    twoShifts(state, [blankSlot('slot-1', 'family-1'), blankSlot('slot-2')]);
+    state.events[0].draft.endDate = '2026-10-05';
+    Object.assign(state.events[0].draft.shifts[1], {
+      startsAt: '2026-10-05T09:00:00+02:00',
+      endsAt: '2026-10-05T10:00:00+02:00',
+    });
+    state.families[1].exempt = state.families[2].exempt = true;
+    expect(
+      autoPlan(state, 'event').state.events[0].draft.shifts[1].slots[0].familyId,
+    ).toBeUndefined();
+    const other = clone(state.events[0]);
+    other.id = 'other';
+    other.published = clone(other.draft);
+    other.published.shifts = [other.published.shifts[0]];
+    other.published.shifts[0].slots[0].id = 'other-slot';
+    state.events[0].draft.shifts = [state.events[0].draft.shifts[1]];
+    state.events.push(other);
+    expect(autoPlan(state, 'event').state.events[0].draft.shifts[0].slots[0].familyId).toBe(
+      'family-1',
+    );
   });
 
   it('respects leader exemptions, availability, active children and existing manual choices', () => {
@@ -510,13 +580,13 @@ describe('publication, changes and confirmations', () => {
 });
 
 describe('validation, copying and import', () => {
-  it('blocks double-booked families without distinct adults and accepts explicit parallel adults', () => {
+  it('blocks multiple passes for one family even with two explicitly different adults', () => {
     const state = fixture();
     state.events[0].draft.shifts[0].slots.push(blankSlot('slot-2', 'family-1'));
     expect(validateEvent(state, 'event').join(' ')).toContain('Dubbelbokning');
     state.events[0].draft.shifts[0].slots[0].adultId = 'adult-1-1';
     state.events[0].draft.shifts[0].slots[1].adultId = 'adult-1-2';
-    expect(validateEvent(state, 'event')).toEqual([]);
+    expect(validateEvent(state, 'event').join(' ')).toContain('Högst ett bemanningspass');
     state.events[0].draft.shifts[0].slots[1].adultId = 'adult-1-1';
     expect(validateEvent(state, 'event').join(' ')).toContain('samma vuxen');
   });
@@ -536,7 +606,38 @@ describe('validation, copying and import', () => {
     slots[1].adultPhone = '0709999999';
     expect(validateEvent(state, 'event').join(' ')).toContain('samma vuxen');
     slots[1].adultName = 'En annan vuxen';
+    slots[1].familyId = 'family-2';
     expect(validateEvent(state, 'event')).toEqual([]);
+  });
+
+  it('rejects a second manual assignment on save and legacy duplicates on publication', () => {
+    const state = fixture();
+    const event = clone(state.events[0]);
+    const other = clone(event.draft.shifts[0]);
+    other.id = 'shift-2';
+    other.startsAt = other.endsAt;
+    other.endsAt = '2026-10-04T18:00:00+02:00';
+    other.slots = [{ ...blankSlot('slot-2', 'family-1'), adultId: 'adult-1-2' }];
+    event.draft.shifts[0].slots[0].adultId = 'adult-1-1';
+    event.draft.shifts.push(other);
+    expect(() => applyCommand(state, { type: 'save_event', event }, 'admin', now)).toThrow(
+      'redan ett bemanningspass',
+    );
+    state.events[0] = event;
+    expect(() => published(state)).toThrow('Högst ett bemanningspass');
+    // Keeping an old draft editable lets the administrator repair duplicates in stages.
+    expect(() => applyCommand(state, { type: 'save_event', event }, 'admin', now)).not.toThrow();
+    event.draft.shifts[1].slots[0].familyId = 'family-2';
+    delete event.draft.shifts[1].slots[0].adultId;
+    const corrected = applyCommand(state, { type: 'save_event', event }, 'admin', now);
+    expect(validateEvent(corrected, 'event')).toEqual([]);
+  });
+
+  it('counts onsite passes even when they do not count toward the historical balance', () => {
+    const state = fixture();
+    twoShifts(state, [blankSlot('slot-1', 'family-1'), blankSlot('slot-2', 'family-1')]);
+    state.events[0].draft.shifts[0].countsTowardBalance = false;
+    expect(validateEvent(state, 'event').join(' ')).toContain('Högst ett bemanningspass');
   });
 
   it('permits an empty draft with no roles but prevents publishing it', () => {
@@ -835,9 +936,65 @@ describe('self booking, station answers and voluntary preparations', () => {
         'public',
         now,
       ),
-    ).toThrow('Dubbelbokning');
+    ).toThrow('redan ett bemanningspass');
     expect(state).toEqual(before);
   });
+  it('rejects a non-overlapping self booking by the other parent without changing any contacts', () => {
+    const original = fixture();
+    twoShifts(original, [blankSlot('slot-1'), blankSlot('slot-2')]);
+    original.events[0].draft.bookingMode = 'self';
+    const state = applyCommand(
+      published(original),
+      { ...booking, answer: undefined, sharedAnswer: undefined },
+      'public',
+      now,
+    );
+    const before = clone(state);
+    expect(() =>
+      applyCommand(
+        state,
+        { ...booking, slotId: 'slot-2', adultId: 'adult-1-2', adultEmail: 'changed@example.test' },
+        'public',
+        now,
+      ),
+    ).toThrow('redan ett bemanningspass');
+    expect(state).toEqual(before);
+  });
+  it('rejects a second self booking when the family already has a draft-only pass', () => {
+    const state = openEvent();
+    state.events[0].draft.shifts[0].slots[1].familyId = 'family-1';
+    expect(() => applyCommand(state, booking, 'public', now)).toThrow('redan ett bemanningspass');
+  });
+  it.each([true, false])(
+    'allows voluntary preparations alongside one staffed pass, preparation first: %s',
+    (preparationFirst) => {
+      const state = fixture();
+      state.events[0].draft.bookingMode = 'self';
+      twoShifts(state, [blankSlot('slot-1'), blankSlot('slot-2')]);
+      Object.assign(state.events[0].draft.shifts[1], {
+        kind: 'task',
+        endsAt: state.events[0].draft.shifts[1].startsAt,
+      });
+      const first = preparationFirst ? 'slot-2' : 'slot-1';
+      const second = preparationFirst ? 'slot-1' : 'slot-2';
+      const booked = applyCommand(
+        published(state),
+        { ...booking, slotId: first, answer: undefined, sharedAnswer: undefined },
+        'public',
+        now,
+      );
+      const done = applyCommand(
+        booked,
+        { ...booking, slotId: second, answer: undefined, sharedAnswer: undefined },
+        'public',
+        now,
+      );
+      expect(done.events[0].published!.shifts.every((s) => s.slots[0].status === 'confirmed')).toBe(
+        true,
+      );
+      expect(validateEvent(done, 'event')).toEqual([]);
+    },
+  );
   it('allows an exempt family to volunteer and admin to fill other vacancies manually', () => {
     let state = openEvent();
     state.families[0].exempt = true;

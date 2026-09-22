@@ -164,7 +164,7 @@ Klart när: alla godkända funktioner fungerar tillsammans för ett evenemang oc
 **Standardvärden att utgå från vid bygget**
 
 - Nya familjer börjar på noll dokumenterade insatser och deltar från aktivt medlemskap. Det kan ge dem fler tidiga förslag när all historik används; inget påhittat startsaldo införs.
-- Automatiken kan föreslå flera pass för en familj med lågt saldo, om tiderna fungerar. Saldot räknas om efter varje förslag. Administratören ser fördelningen och kan justera den före publicering; ingen dold gräns ändrar den beslutade prioriteringen efter antal pass.
+- Varje familj kan ha högst ett bemanningspass per evenemang, oavsett antal föräldrar eller barn. Gränsen gäller automatisk fördelning, manuell tilldelning och självbokning. Om familjerna inte räcker lämnas övriga platser tomma. Frivilliga förberedelser får göras utöver bemanningspasset. Historik styr fortfarande prioriteringen mellan tillgängliga familjer.
 - Föreslagna mejlpåminnelser är sju dagar och ett dygn före passet, ändringsbart per lag. Om ett pass publiceras sent skickas inte redan passerade påminnelser i efterhand.
 - Administratören kan avsluta flera genomförda pass samtidigt, men historiska och nya uppdrag räknas inte som utförda enbart för att tiden har passerat.
 

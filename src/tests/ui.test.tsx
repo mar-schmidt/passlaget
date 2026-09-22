@@ -864,6 +864,68 @@ it('does not offer self booking in administrator assigned events', () => {
   expect(screen.queryByRole('button', { name: 'Boka platsen' })).toBeNull();
 });
 
+it('blocks another staffing booking but still offers voluntary preparations for the selected family', () => {
+  const event = server.events[0];
+  event.published!.bookingMode = 'self';
+  const shift = event.published!.shifts[0];
+  shift.slots.push({ id: 'vacant-slot', status: 'pending', revision: 1, locked: false });
+  const task = structuredClone(shift);
+  task.id = 'preparation';
+  task.kind = 'task';
+  task.title = 'Bakning';
+  task.startsAt = task.endsAt;
+  task.slots = [{ id: 'task-slot', status: 'pending', revision: 1, locked: false }];
+  event.published!.shifts.push(task);
+  render(
+    <Parents
+      state={projected(server)}
+      familyId="family-one"
+      setFamilyId={vi.fn()}
+      mutate={vi.fn()}
+      tell={vi.fn()}
+    />,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Familjen har redan ett pass' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  expect((screen.getByRole('button', { name: 'Boka platsen' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});
+
+it('omits already assigned families from a vacant staffing place while keeping the current selection editable', async () => {
+  const user = userEvent.setup();
+  server.events[0].draft.shifts[0].slots.push({
+    id: 'vacant-slot',
+    status: 'pending',
+    revision: 0,
+    locked: false,
+  });
+  render(
+    <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={vi.fn()} tell={vi.fn()} />,
+  );
+  const article = screen.getByRole('heading', { name: 'Öppet testsammandrag' }).closest('article')!;
+  await user.click(within(article).getByRole('button', { name: 'Öppna planering' }));
+  const first = screen.getByRole('combobox', { name: 'Familj för plats 1' });
+  const second = screen.getByRole('combobox', { name: 'Familj för plats 2' });
+  expect(
+    within(first)
+      .getAllByRole('option')
+      .some((o) => (o as HTMLOptionElement).value === 'family-one'),
+  ).toBe(true);
+  expect(
+    within(second)
+      .getAllByRole('option')
+      .some((o) => (o as HTMLOptionElement).value === 'family-one'),
+  ).toBe(false);
+  expect(
+    within(second)
+      .getAllByRole('option')
+      .some((o) => (o as HTMLOptionElement).value === 'family-two'),
+  ).toBe(true);
+});
+
 describe('SportAdmin in the event editor', () => {
   const integration = (links: Record<string, number> = {}) => ({
     connected: true,

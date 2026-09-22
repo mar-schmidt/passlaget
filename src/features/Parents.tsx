@@ -1,4 +1,4 @@
-import { attendanceEligible } from '../domain/logic';
+import { attendanceEligible, familyHasStaffingPass } from '../domain/logic';
 import { useState } from 'react';
 import {
   ArrowRight,
@@ -101,6 +101,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
     published.at(-1);
   const event = published.find((item) => item.id === eventId) || defaultEvent;
   const details = event?.published;
+  const familyHasPass = !!family && familyHasStaffingPass(details, family.id);
   const ownAssignments = allAssignments.filter((item) => item.event.id === event?.id);
   const multiDay = Boolean(details && details.startDate !== details.endDate);
   const eventPast = Boolean(details && details.endDate < today);
@@ -610,7 +611,9 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                                         <button
                                           className="button secondary"
                                           disabled={
-                                            !!family && !attendanceEligible(state, event, family.id)
+                                            (shift.kind !== 'task' && familyHasPass) ||
+                                            (!!family &&
+                                              !attendanceEligible(state, event, family.id))
                                           }
                                           onClick={() =>
                                             family
@@ -623,11 +626,13 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                                               : setChoosingFamily(true)
                                           }
                                         >
-                                          {family
-                                            ? attendanceEligible(state, event, family.id)
-                                              ? 'Boka platsen'
-                                              : 'Ja-svar i SportAdmin behövs'
-                                            : 'Välj familj för att boka'}
+                                          {shift.kind !== 'task' && familyHasPass
+                                            ? 'Familjen har redan ett pass'
+                                            : family
+                                              ? attendanceEligible(state, event, family.id)
+                                                ? 'Boka platsen'
+                                                : 'Ja-svar i SportAdmin behövs'
+                                              : 'Välj familj för att boka'}
                                         </button>
                                       )}
                                     <PublishedStatus

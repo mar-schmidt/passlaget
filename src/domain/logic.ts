@@ -494,6 +494,38 @@ function eligibleFamily(state: PortalState, family: Family): boolean {
     family.active && state.children.some((child) => child.familyId === family.id && child.active)
   );
 }
+/** A family shares one staffing commitment per event. Voluntary preparations are separate. */
+export function familyHasStaffingPass(
+  details: EventDetails | undefined,
+  familyId: string,
+  exceptSlotId?: string,
+): boolean {
+  return !!details?.shifts.some(
+    (shift) =>
+      !shift.externalTeam &&
+      shift.kind !== 'task' &&
+      shift.slots.some(
+        (slot) =>
+          slot.id !== exceptSlotId && slot.familyId === familyId && slot.status !== 'cancelled',
+      ),
+  );
+}
+export function familyPassLimitErrors(state: PortalState, details: EventDetails): string[] {
+  const seen = new Set<string>();
+  const duplicates = new Set<string>();
+  for (const shift of details.shifts) {
+    if (shift.externalTeam || shift.kind === 'task') continue;
+    for (const slot of shift.slots) {
+      if (!slot.familyId || slot.status === 'cancelled') continue;
+      if (seen.has(slot.familyId)) duplicates.add(slot.familyId);
+      seen.add(slot.familyId);
+    }
+  }
+  return [...duplicates].map(
+    (familyId) =>
+      `${state.families.find((f) => f.id === familyId)?.label || 'Familjen'} har flera pass. Högst ett bemanningspass per familj och evenemang är tillåtet.`,
+  );
+}
 function selection(
   state: PortalState,
   targetEventId?: string,
@@ -558,6 +590,7 @@ export function validateEvent(state: PortalState, eventId: string): string[] {
     return [error instanceof Error ? error.message : 'Evenemanget har fel format.'];
   }
   const details = event.draft;
+  errors.push(...familyPassLimitErrors(state, details));
   if (!details.shifts.length) errors.push('Lägg till minst ett pass innan publicering.');
   const targetIds = new Set(details.shifts.flatMap((shift) => shift.slots.map((slot) => slot.id)));
   for (const other of state.events)
@@ -638,7 +671,7 @@ export function autoPlan(state: PortalState, eventId: string): PlanningResult {
   const next = clone(state);
   const event = eventById(next, eventId);
   if (event.cancelled) failure('Ett inställt evenemang kan inte bemannas.', 409);
-  const notices: string[] = [];
+  const notices: string[] = familyPassLimitErrors(next, event.draft);
   const shifts = [...event.draft.shifts].sort(
     (a, b) => timestamp(a.startsAt) - timestamp(b.startsAt) || a.id.localeCompare(b.id),
   );
@@ -658,6 +691,7 @@ export function autoPlan(state: PortalState, eventId: string): PlanningResult {
           (family) =>
             eligibleFamily(next, family) &&
             attendanceEligible(next, event, family.id) &&
+            !familyHasStaffingPass(event.draft, family.id) &&
             !family.exempt &&
             !(family.unavailable ?? []).some((unavailable) => overlaps(unavailable, shift)),
         )
@@ -691,7 +725,7 @@ export function autoPlan(state: PortalState, eventId: string): PlanningResult {
       const family = candidates[0];
       if (!family) {
         notices.push(
-          `${shift.roleName} ${stockholmParts(shift.startsAt).date} ${stockholmParts(shift.startsAt).time.slice(0, 5)}: ingen tillgänglig familj, platsen är tom.`,
+          `${shift.roleName} ${stockholmParts(shift.startsAt).date} ${stockholmParts(shift.startsAt).time.slice(0, 5)}: ingen tillgänglig familj utan pass på evenemanget, platsen är tom.`,
         );
         continue;
       }
@@ -1104,6 +1138,25 @@ export function applyCommand(
         )
       )
         failure('Ett genomfört pass kan inte tas bort ur schemat.', 409);
+      for (const shift of draft.shifts) {
+        if (shift.externalTeam || shift.kind === 'task') continue;
+        for (const slot of shift.slots) {
+          if (!slot.familyId || slot.status === 'cancelled') continue;
+          const prior = findSlot(existing?.draft, slot.id);
+          const retained =
+            prior &&
+            !prior.shift.externalTeam &&
+            prior.shift.kind !== 'task' &&
+            prior.slot.status !== 'cancelled' &&
+            prior.slot.familyId === slot.familyId;
+          // Old duplicates may be corrected gradually, but no new second pass may be added.
+          if (!retained && familyHasStaffingPass(draft, slot.familyId, slot.id))
+            failure(
+              'Familjen har redan ett bemanningspass på evenemanget. Välj en annan familj.',
+              409,
+            );
+        }
+      }
       const event: PortalEvent = existing
         ? { ...existing, draft, manualParticipantIds, updatedAt: at }
         : {
@@ -1317,6 +1370,15 @@ export function applyCommand(
         )
           failure(
             'Lagföräldern håller på att ändra den här platsen. Välj en annan plats eller kontakta lagföräldern.',
+            409,
+          );
+        if (
+          found.shift.kind !== 'task' &&
+          (familyHasStaffingPass(event.published, family.id) ||
+            familyHasStaffingPass(event.draft, family.id))
+        )
+          failure(
+            'Familjen har redan ett bemanningspass på evenemanget. Ni kan bara boka ett pass per evenemang.',
             409,
           );
         bookingOld = clone(found.slot);
