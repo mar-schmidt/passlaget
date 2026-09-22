@@ -1408,7 +1408,7 @@ export function applyCommand(
       if (slot.status !== 'pending') failure('Passet är redan bekräftat.', 409);
       if (timestamp(shift.startsAt) <= timestamp(at)) failure('Passet har redan börjat.', 409);
       if (!assignmentContacts(next, slot).length)
-        failure('Mejladress saknas. Lägg till den under Barn & föräldrar.');
+        failure('Mejladress saknas. Lägg till den under Spelare & föräldrar.');
       if (
         slot.reminderRevision === slot.revision &&
         slot.reminderRequestedAt &&

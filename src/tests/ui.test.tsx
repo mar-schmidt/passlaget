@@ -793,7 +793,7 @@ describe('parent contact emails and individual reminders', () => {
     expect(
       (screen.getByRole('button', { name: 'Påminn via mejl' }) as HTMLButtonElement).disabled,
     ).toBe(true);
-    expect(screen.getByText('Mejladress saknas – lägg till under Barn & föräldrar.')).toBeTruthy();
+    expect(screen.getByText('Mejladress saknas – lägg till under Spelare & föräldrar.')).toBeTruthy();
   });
 });
 

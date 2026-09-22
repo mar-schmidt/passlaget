@@ -42,7 +42,7 @@ const route = (): Page => {
 const adminPages = [
   { id: 'oversikt', name: 'Översikt', icon: LayoutDashboard },
   { id: 'evenemang', name: 'Evenemang', icon: CalendarDays },
-  { id: 'familjer', name: 'Barn & föräldrar', icon: Users },
+  { id: 'familjer', name: 'Spelare & föräldrar', icon: Users },
   { id: 'sportadmin', name: 'SportAdmin', icon: Users },
   { id: 'fordelning', name: 'Rättvis fördelning', icon: ChartNoAxesCombined },
   { id: 'paminnelser', name: mailEnabled ? 'Mejl & drift' : 'Kontakt & drift', icon: Mail },
