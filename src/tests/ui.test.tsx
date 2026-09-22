@@ -1015,6 +1015,151 @@ it('shows already assigned families as disabled while keeping the current select
   ).toBe(true);
 });
 
+describe('confirmations in event planning', () => {
+  async function openPlanning() {
+    const article = screen
+      .getByRole('heading', { name: 'Öppet testsammandrag' })
+      .closest('article')!;
+    await userEvent.setup().click(within(article).getByRole('button', { name: 'Öppna planering' }));
+    return screen.getByRole('dialog');
+  }
+
+  it('groups replies by station and orders each station by date and time, including vacant places', async () => {
+    const details = server.events[0].published!;
+    const kiosk = structuredClone(details.shifts[0]);
+    kiosk.id = 'kiosk-late';
+    kiosk.roleName = 'Kiosk';
+    kiosk.startsAt = '2030-06-16T08:00:00+02:00';
+    kiosk.endsAt = '2030-06-16T10:00:00+02:00';
+    kiosk.slots = [
+      {
+        ...kiosk.slots[0],
+        id: 'confirmed',
+        familyId: 'family-two',
+        adultName: 'Vuxen som kommer',
+        status: 'confirmed',
+      },
+      { id: 'empty', status: 'pending', revision: 1, locked: false },
+    ];
+    const earlier = structuredClone(kiosk);
+    earlier.id = 'kiosk-early';
+    earlier.startsAt = '2030-06-15T08:00:00+02:00';
+    earlier.endsAt = '2030-06-15T10:00:00+02:00';
+    earlier.slots = [{ ...details.shifts[0].slots[0], id: 'early-slot' }];
+    details.shifts.push(kiosk, earlier, {
+      ...structuredClone(kiosk),
+      id: 'external',
+      roleName: 'Löpare',
+      externalTeam: 'Grannlaget',
+      slots: [],
+    });
+    render(
+      <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={vi.fn()} tell={vi.fn()} />,
+    );
+    const dialog = await openPlanning();
+    await userEvent.setup().click(within(dialog).getByRole('button', { name: 'Bekräftelser' }));
+    const replies = within(dialog).getByRole('region', {
+      name: 'Bekräftelser per station och pass',
+    });
+    const kioskGroup = within(replies).getByRole('region', { name: 'Station: Kiosk' });
+    const passes = within(kioskGroup).getAllByRole('article');
+    expect(passes[0].getAttribute('aria-label')).toContain('15 juni');
+    expect(passes[1].getAttribute('aria-label')).toContain('16 juni');
+    expect(within(passes[1]).getByText('Testbarn Två')).toBeTruthy();
+    expect(within(passes[1]).getByText('Vuxen som kommer')).toBeTruthy();
+    expect(within(passes[1]).getByText('Bekräftat')).toBeTruthy();
+    expect(within(passes[1]).getByText('Ledig plats 2')).toBeTruthy();
+    expect(within(replies).getByText('Bemannas av Grannlaget')).toBeTruthy();
+    expect(
+      within(replies).getByRole('group', { name: 'Sammanställning för evenemanget' }).textContent,
+    ).toContain('Bekräftade: 1');
+    expect(within(dialog).queryByLabelText('Koppla till SportAdmin')).toBeNull();
+  });
+
+  it('uses fresh published replies while preserving unsaved planning edits across tabs', async () => {
+    const latest = structuredClone(server);
+    latest.version++;
+    latest.events[0].published!.shifts[0].slots[0].status = 'confirmed';
+    latest.events[0].published!.shifts[0].slots[0].adultName = 'Nyligen bekräftad vuxen';
+    latest.events[0].draft.shifts[0].slots[0].familyId = 'family-two';
+    client.readPortal.mockResolvedValue(latest);
+    const mutate = vi.fn();
+    render(
+      <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+    );
+    const dialog = await openPlanning();
+    const user = userEvent.setup();
+    await user.click(within(dialog).getByRole('button', { name: 'Grunduppgifter' }));
+    await user.type(within(dialog).getByLabelText('Evenemangets namn'), ' – osparad ändring');
+    await user.click(within(dialog).getByRole('button', { name: 'Bekräftelser' }));
+    const replies = within(dialog).getByRole('region', {
+      name: 'Bekräftelser per station och pass',
+    });
+    expect(await within(replies).findByText('Nyligen bekräftad vuxen')).toBeTruthy();
+    expect(within(replies).getByText('Testbarn Ett')).toBeTruthy();
+    expect(within(replies).queryByText('Testbarn Två')).toBeNull();
+    expect(within(replies).getByText(/visas här först när du publicerar/)).toBeTruthy();
+    await user.click(within(dialog).getByRole('button', { name: 'Grunduppgifter' }));
+    expect(
+      (within(dialog).getByLabelText('Evenemangets namn') as HTMLInputElement).value,
+    ).toContain('osparad ändring');
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it('shows imported confirmations in a saved draft without offering email reminders', async () => {
+    const event = server.events[0];
+    delete event.published;
+    event.publication = 0;
+    event.confirmationImport = { source: 'synthetic.xlsx', registeredAt: '2030-06-01T10:00:00Z' };
+    event.draft.shifts[0].slots[0].status = 'confirmed';
+    event.draft.shifts[0].slots.push({
+      id: 'pending',
+      familyId: 'family-two',
+      status: 'pending',
+      locked: false,
+      revision: 0,
+    });
+    render(
+      <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={vi.fn()} tell={vi.fn()} />,
+    );
+    const dialog = await openPlanning();
+    await userEvent.setup().click(within(dialog).getByRole('button', { name: 'Bekräftelser' }));
+    expect(within(dialog).getByText('Bekräftat')).toBeTruthy();
+    expect(within(dialog).getByText(/Bekräftelser som importerats/)).toBeTruthy();
+    expect(within(dialog).queryByRole('button', { name: 'Påminn via mejl' })).toBeNull();
+  });
+
+  it('can request a reminder for a pending published pass and immediately reflects the cooldown', async () => {
+    server.adults[0].email = 'parent@example.test';
+    const mutate = vi.fn(async (command: PortalCommand) => {
+      server = applyCommand(server, command, 'admin');
+      return server;
+    });
+    render(
+      <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+    );
+    const dialog = await openPlanning();
+    const user = userEvent.setup();
+    await user.click(within(dialog).getByRole('button', { name: 'Bekräftelser' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Påminn via mejl' }));
+    await waitFor(() =>
+      expect(
+        (within(dialog).getByRole('button', { name: 'Påminnelse begärd' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(true),
+    );
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'remind_confirmation',
+        eventId: 'event-one',
+        slotId: 'slot-one',
+        familyId: 'family-one',
+      }),
+      expect.any(Number),
+    );
+  });
+});
+
 describe('SportAdmin in the event editor', () => {
   const integration = (links: Record<string, number> = {}) => ({
     connected: true,

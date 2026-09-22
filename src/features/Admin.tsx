@@ -1,5 +1,6 @@
 import { prepareEventCommand } from '../domain/event-concurrency';
 import PlayerSync from './PlayerSync';
+import EventConfirmations from './EventConfirmations';
 import SportAdminPanel, { type Integration } from './SportAdmin';
 import { attendanceEligible, attendanceWarnings } from '../domain/logic';
 import { useEffect, useRef, useState } from 'react';
@@ -636,7 +637,9 @@ function EventEditor({
   const [error, setError] = useState('');
   const [problems, setProblems] = useState<string[]>([]);
   const [explanations, setExplanations] = useState<string[]>([]);
-  const [tab, setTab] = useState<'details' | 'shifts'>(initial.draft.title ? 'shifts' : 'details');
+  const [tab, setTab] = useState<'details' | 'shifts' | 'confirmations'>(
+    initial.draft.title ? 'shifts' : 'details',
+  );
   const baseVersion = useRef(state.version);
   const baseEvent = useRef<PortalEvent | null>(
     structuredClone(state.events.find((e) => e.id === initial.id) ?? null),
@@ -820,12 +823,27 @@ function EventEditor({
   return (
     <Modal title={initial.draft.title || 'Nytt evenemang'} onClose={close} wide>
       <div className="editor-top">
-        <div className="segmented">
-          <button onClick={() => setTab('details')} className={tab === 'details' ? 'selected' : ''}>
+        <div className="segmented event-editor-tabs" role="group" aria-label="Planeringsflikar">
+          <button
+            aria-pressed={tab === 'details'}
+            onClick={() => setTab('details')}
+            className={tab === 'details' ? 'selected' : ''}
+          >
             Grunduppgifter
           </button>
-          <button onClick={() => setTab('shifts')} className={tab === 'shifts' ? 'selected' : ''}>
+          <button
+            aria-pressed={tab === 'shifts'}
+            onClick={() => setTab('shifts')}
+            className={tab === 'shifts' ? 'selected' : ''}
+          >
             Pass & bemanning <span>{currentCount.total}</span>
+          </button>
+          <button
+            aria-pressed={tab === 'confirmations'}
+            onClick={() => setTab('confirmations')}
+            className={tab === 'confirmations' ? 'selected' : ''}
+          >
+            Bekräftelser
           </button>
         </div>
         <span className="muted editor-status">
@@ -833,94 +851,123 @@ function EventEditor({
         </span>
       </div>
       <fieldset disabled={!!busy} className="modal-body event-editor editor-fieldset">
-        <div className="event-sportadmin-link">
-          <label>
-            Koppla till SportAdmin
-            <select
-              value={activityId === undefined ? 'keep' : (activityId ?? '')}
-              disabled={sportadminLoading || !sportadmin || !!sportadminError}
-              onChange={(e) =>
-                setActivityId(
-                  e.target.value === 'keep'
-                    ? undefined
-                    : e.target.value
-                      ? Number(e.target.value)
-                      : null,
-                )
-              }
-            >
-              <option value="">
-                {sportadminLoading ? 'Hämtar aktiviteter…' : 'Ingen koppling'}
-              </option>
-              {savedActivityId === undefined && (
-                <option value="keep">Behåll befintlig koppling – behöver återställas</option>
-              )}
-              {typeof savedActivityId === 'number' &&
-                !sportadmin?.activities.some((a) => a.id === savedActivityId) && (
-                  <option value={savedActivityId}>
-                    {initial.attendance?.title || 'Nuvarande aktivitet'}
-                  </option>
-                )}
-              {sportadmin?.activities.map((a) => (
-                <option key={a.id} value={a.id} disabled={!sportadmin.connected}>
-                  {dateLabel(a.startsAt)} · {a.title}
+        {tab !== 'confirmations' && (
+          <div className="event-sportadmin-link">
+            <label>
+              Koppla till SportAdmin
+              <select
+                value={activityId === undefined ? 'keep' : (activityId ?? '')}
+                disabled={sportadminLoading || !sportadmin || !!sportadminError}
+                onChange={(e) =>
+                  setActivityId(
+                    e.target.value === 'keep'
+                      ? undefined
+                      : e.target.value
+                        ? Number(e.target.value)
+                        : null,
+                  )
+                }
+              >
+                <option value="">
+                  {sportadminLoading ? 'Hämtar aktiviteter…' : 'Ingen koppling'}
                 </option>
-              ))}
-            </select>
-          </label>
-          <p className="hint">
-            {sportadminError ||
-              (isDemo
-                ? 'Anslut SportAdmin i den riktiga portalen för att välja aktivitet.'
-                : sportadmin && !sportadmin.connected
-                  ? 'Anslut laget under SportAdmin för att välja en aktivitet. Du kan fortfarande ta bort en befintlig koppling.'
-                  : 'Välj aktiviteten som barnen ska delta i. Bara familjer med ett aktivt barn som svarat ja kan få nya pass. Kopplingen sparas med evenemanget.')}
-          </p>
-          {sportadminError && (
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => setLookupAttempt((n) => n + 1)}
-            >
-              Försök igen
-            </button>
-          )}
-          {linkChanged && activityId !== null && (
+                {savedActivityId === undefined && (
+                  <option value="keep">Behåll befintlig koppling – behöver återställas</option>
+                )}
+                {typeof savedActivityId === 'number' &&
+                  !sportadmin?.activities.some((a) => a.id === savedActivityId) && (
+                    <option value={savedActivityId}>
+                      {initial.attendance?.title || 'Nuvarande aktivitet'}
+                    </option>
+                  )}
+                {sportadmin?.activities.map((a) => (
+                  <option key={a.id} value={a.id} disabled={!sportadmin.connected}>
+                    {dateLabel(a.startsAt)} · {a.title}
+                  </option>
+                ))}
+              </select>
+            </label>
             <p className="hint">
-              Spara kopplingen innan du väljer familjer manuellt. Du kan också trycka på Fördela
-              lediga pass för att spara och fördela direkt.
+              {sportadminError ||
+                (isDemo
+                  ? 'Anslut SportAdmin i den riktiga portalen för att välja aktivitet.'
+                  : sportadmin && !sportadmin.connected
+                    ? 'Anslut laget under SportAdmin för att välja en aktivitet. Du kan fortfarande ta bort en befintlig koppling.'
+                    : 'Välj aktiviteten som barnen ska delta i. Bara familjer med ett aktivt barn som svarat ja kan få nya pass. Kopplingen sparas med evenemanget.')}
             </p>
-          )}
-          {state.children.some((c) => c.active && c.source === 'manual') &&
-            (typeof activityId === 'number' || (activityId === undefined && event.attendance)) && (
-              <div className="manual-participants">
-                <h3>Manuella spelare som deltar</h3>
-                <p className="hint">
-                  Markera de manuella spelare som ska vara med. Då kan deras familjer få pass på
-                  detta evenemang.
-                </p>
-                {state.children
-                  .filter((c) => c.active && c.source === 'manual')
-                  .map((child) => (
-                    <label className="check-label" key={child.id}>
-                      <input
-                        type="checkbox"
-                        checked={event.manualParticipantIds?.includes(child.id) || false}
-                        onChange={(e) =>
-                          setEvent((old) => ({
-                            ...old,
-                            manualParticipantIds: e.target.checked
-                              ? [...(old.manualParticipantIds || []), child.id]
-                              : (old.manualParticipantIds || []).filter((id) => id !== child.id),
-                          }))
-                        }
-                      />
-                      {child.name}
-                    </label>
-                  ))}
-              </div>
+            {sportadminError && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setLookupAttempt((n) => n + 1)}
+              >
+                Försök igen
+              </button>
             )}
-        </div>
+            {linkChanged && activityId !== null && (
+              <p className="hint">
+                Spara kopplingen innan du väljer familjer manuellt. Du kan också trycka på Fördela
+                lediga pass för att spara och fördela direkt.
+              </p>
+            )}
+            {state.children.some((c) => c.active && c.source === 'manual') &&
+              (typeof activityId === 'number' ||
+                (activityId === undefined && event.attendance)) && (
+                <div className="manual-participants">
+                  <h3>Manuella spelare som deltar</h3>
+                  <p className="hint">
+                    Markera de manuella spelare som ska vara med. Då kan deras familjer få pass på
+                    detta evenemang.
+                  </p>
+                  {state.children
+                    .filter((c) => c.active && c.source === 'manual')
+                    .map((child) => (
+                      <label className="check-label" key={child.id}>
+                        <input
+                          type="checkbox"
+                          checked={event.manualParticipantIds?.includes(child.id) || false}
+                          onChange={(e) =>
+                            setEvent((old) => ({
+                              ...old,
+                              manualParticipantIds: e.target.checked
+                                ? [...(old.manualParticipantIds || []), child.id]
+                                : (old.manualParticipantIds || []).filter((id) => id !== child.id),
+                            }))
+                          }
+                        />
+                        {child.name}
+                      </label>
+                    ))}
+                </div>
+              )}
+          </div>
+        )}
+        {tab === 'confirmations' &&
+          (live ? (
+            <EventConfirmations
+              event={live}
+              state={state}
+              unpublishedChanges={dirty || hasDraft(live)}
+              refreshError={!!choicesError}
+              renderReminder={(slot) => (
+                <ConfirmationReminder
+                  state={state}
+                  event={live}
+                  slot={slot}
+                  mutate={async (command, version) => {
+                    const next = await mutate(command, version);
+                    setSelectionState(next);
+                    return next;
+                  }}
+                  tell={tell}
+                />
+              )}
+            />
+          ) : (
+            <Empty title="Spara evenemanget först">
+              Här visas familjernas svar när evenemanget har sparats.
+            </Empty>
+          ))}
         {tab === 'details' && (
           <div className="form-stack">
             <label>
@@ -1405,7 +1452,7 @@ function EventEditor({
             </p>
           </>
         )}
-        {explanations.length > 0 && (
+        {tab !== 'confirmations' && explanations.length > 0 && (
           <details className="instructions planning-explanations" open>
             <summary>Så fördelades passen</summary>
             <ul>
