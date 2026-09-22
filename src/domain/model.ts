@@ -102,6 +102,8 @@ export interface SportAdminAttendance {
   manualFamilyIds?: string[];
 }
 export interface PortalEvent {
+  /** Set only by an administrative import; not accepted from save_event input. */
+  confirmationImport?: { source: string; registeredAt: string };
   attendance?: SportAdminAttendance;
   manualParticipantIds?: string[];
   id: string;

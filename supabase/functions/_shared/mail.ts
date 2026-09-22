@@ -98,6 +98,9 @@ export function matches(subscription: Subscription, entry: MailEntry) {
 }
 const active = (entry: MailEntry) =>
   !entry.cancelled && (entry.status === 'pending' || entry.status === 'confirmed');
+const importedConfirmation = (state: PortalState, entry: MailEntry) =>
+  entry.status === 'confirmed' &&
+  !!state.events.find((e) => e.id === entry.eventId)?.confirmationImport;
 const key = (entry: MailEntry) => `${entry.eventId}:${entry.slotId}`;
 const fingerprint = (entry: MailEntry) =>
   JSON.stringify([
@@ -144,8 +147,10 @@ export async function buildMailJobs(
       (x) => active(x) && matches(subscription, x) && Date.parse(x.endsAt) > nowMs,
     )) {
       const prior = oldByKey.get(key(entry));
-      if (!prior || !active(prior) || !matches(subscription, prior)) groups.assignment.push(entry);
-      else if (fingerprint(prior) !== fingerprint(entry)) groups.changed.push(entry);
+      if (!prior || !active(prior) || !matches(subscription, prior)) {
+        // An imported acceptance needs neither a new assignment notice nor a reminder.
+        if (!importedConfirmation(after, entry)) groups.assignment.push(entry);
+      } else if (fingerprint(prior) !== fingerprint(entry)) groups.changed.push(entry);
       if (entry.status !== 'pending') continue;
       for (const days of after.team.reminderDays) {
         const dueMs = Date.parse(entry.startsAt) - days * 86400000;
@@ -213,6 +218,7 @@ export function validMailEntries(
     const next = current.get(key(entry));
     // Recheck live status, including jobs queued before the parent confirmed.
     if (kind === 'reminder' && next?.status !== 'pending') return false;
+    if (kind === 'assignment' && next && importedConfirmation(state, next)) return false;
     if (kind === 'cancelled') return !next || next.cancelled || !matches(subscription, next);
     return Boolean(
       next &&

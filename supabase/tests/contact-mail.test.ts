@@ -225,3 +225,75 @@ describe('adult email and confirmation reminders', () => {
     );
   });
 });
+
+describe('imported confirmations in an unpublished draft', () => {
+  function imported() {
+    const state = fixture();
+    const event = state.events[0];
+    delete event.published;
+    event.publication = 0;
+    event.confirmationImport = { source: 'synthetic.xlsx', registeredAt: now };
+    const slot = event.draft.shifts[0].slots[0];
+    const adult = state.adults.find((a) => a.familyIds.includes(slot.familyId!))!;
+    Object.assign(slot, {
+      adultId: adult.id,
+      adultName: adult.name,
+      adultPhone: adult.phone,
+      status: 'confirmed',
+      revision: 0,
+      confirmedRevision: 0,
+      confirmedAt: now,
+    });
+    return state;
+  }
+  it('preserves an imported confirmation through editing and first publication without mail', async () => {
+    const before = imported();
+    const saved = applyCommand(
+      before,
+      { type: 'save_event', event: structuredClone(before.events[0]) },
+      'admin',
+      now,
+    );
+    const after = applyCommand(saved, publish, 'admin', now);
+    expect(after.events[0].published!.shifts[0].slots[0]).toMatchObject({
+      status: 'confirmed',
+      revision: 1,
+      confirmedRevision: 1,
+      confirmedAt: now,
+    });
+    expect(await buildContactMailJobs(before, after, publish, now)).toEqual([]);
+  });
+  it('invalidates an imported confirmation if a pass time is edited before publication', async () => {
+    const before = imported();
+    const changed = structuredClone(before.events[0]);
+    changed.draft.shifts[0].startsAt = '2026-10-04T09:00:00+02:00';
+    const saved = applyCommand(before, { type: 'save_event', event: changed }, 'admin', now);
+    const after = applyCommand(saved, publish, 'admin', now);
+    expect(after.events[0].published!.shifts[0].slots[0].status).toBe('pending');
+    expect(
+      (await buildContactMailJobs(before, after, publish, now)).some(
+        (j) => j.kind === 'assignment',
+      ),
+    ).toBe(true);
+  });
+  it('does not trust confirmation flags submitted in a newly created event', () => {
+    const before = imported();
+    const event = structuredClone(before.events[0]);
+    before.events = [];
+    const saved = applyCommand(before, { type: 'save_event', event }, 'admin', now);
+    const after = applyCommand(saved, publish, 'admin', now);
+    expect(after.events[0].published!.shifts[0].slots[0].status).toBe('pending');
+  });
+  it('retains cancellation messages for a previously confirmed duty', async () => {
+    const before = applyCommand(imported(), publish, 'admin', now);
+    const after = applyCommand(before, { type: 'cancel_event', eventId: 'e' }, 'admin', now);
+    const jobs = await buildContactMailJobs(
+      before,
+      after,
+      { type: 'cancel_event', eventId: 'e' },
+      now,
+    );
+    expect(jobs.length).toBeGreaterThan(0);
+    expect(jobs.every((j) => j.kind === 'cancelled')).toBe(true);
+  });
+});

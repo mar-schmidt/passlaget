@@ -1269,6 +1269,19 @@ export function applyCommand(
           ) {
             preserveOutcome(slot, old.slot);
             // Names and telephone numbers may have been corrected without invalidating acceptance.
+          } else if (
+            !old &&
+            event.confirmationImport &&
+            slot.familyId &&
+            slot.status === 'confirmed' &&
+            slot.confirmedAt &&
+            Number.isFinite(Date.parse(slot.confirmedAt)) &&
+            slot.confirmedRevision === slot.revision
+          ) {
+            // Existing, verified confirmations may be imported into an unpublished draft.
+            // save_event still clears confirmation when the assignment/time/place changes.
+            slot.revision = 1;
+            slot.confirmedRevision = 1;
           } else {
             slot.revision = old ? old.slot.revision + 1 : 1;
             slot.status = 'pending';

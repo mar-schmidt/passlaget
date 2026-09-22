@@ -319,3 +319,26 @@ it('renders station names, preparation deadlines, answers and approximate finish
     renderMail('Uppdrag', entries(source), 'assignment', 'https://example.test', '').text,
   ).toContain('till cirka 22:00');
 });
+
+it('suppresses assignment mail only for confirmed places in an explicitly imported event', async () => {
+  const before = state();
+  const initiallyQueued = (
+    await buildMailJobs({ ...before, events: [] }, before, [subscription], now)
+  ).find((j) => j.kind === 'assignment')!;
+  const after = structuredClone(before);
+  after.events[0].confirmationImport = { source: 'synthetic.xlsx', registeredAt: now };
+  after.events[0].published!.shifts[0].slots[0].status = 'confirmed';
+  expect(await buildMailJobs({ ...after, events: [] }, after, [subscription], now)).toEqual([]);
+  expect(validMailEntries('assignment', initiallyQueued.payload, after, subscription, now)).toEqual(
+    [],
+  );
+  delete after.events[0].confirmationImport;
+  expect(
+    (await buildMailJobs({ ...after, events: [] }, after, [subscription], now)).some(
+      (j) => j.kind === 'assignment',
+    ),
+  ).toBe(true);
+  expect(
+    validMailEntries('assignment', initiallyQueued.payload, after, subscription, now),
+  ).toHaveLength(1);
+});
