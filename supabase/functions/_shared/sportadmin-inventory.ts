@@ -1,4 +1,9 @@
-import type { Adult, PortalState } from '../../../src/domain/model.ts';
+import type {
+  Adult,
+  InventoryIdentityPair,
+  InventoryMatch,
+  PortalState,
+} from '../../../src/domain/model.ts';
 import { DomainError, emailAddress } from '../../../src/domain/logic.ts';
 import type { Guardian, Roster } from './sportadmin-api.ts';
 
@@ -15,6 +20,7 @@ export function reconcileInventory(
   roster: Roster,
   previousMapping: Record<string, number>,
   manualChildIds: string[] = [],
+  distinctPeople: InventoryIdentityPair[] = [],
 ) {
   const next = structuredClone(state);
   const mapping = { ...previousMapping };
@@ -56,13 +62,29 @@ export function reconcileInventory(
     child.source = 'sportadmin';
   }
   const added: string[] = [];
+  const conflicts: InventoryMatch[] = [];
   for (const player of roster.players) {
     if (used.has(player.id)) continue;
-    if (next.children.some((c) => c.source === 'manual' && normal(c.name) === normal(player.name)))
-      throw new DomainError(
-        `${player.name} finns nu även i SportAdmin. Koppla den manuella spelaren till rätt registerpost under Spelarinventeringen.`,
-        409,
+    const candidates = next.children.filter(
+      (c) =>
+        c.source === 'manual' &&
+        !mapping[c.id] &&
+        normal(c.name) === normal(player.name) &&
+        !distinctPeople.some((pair) => pair.childId === c.id && pair.memberId === player.id),
+    );
+    if (candidates.length) {
+      conflicts.push(
+        ...candidates.map((c) => ({
+          childId: c.id,
+          memberId: player.id,
+          name: player.name,
+          active: player.active,
+          guardians: player.guardians.map(({ name, phone, email }) => ({ name, phone, email })),
+        })),
       );
+      // Keep this identity pending, while allowing the rest of the register to sync.
+      continue;
+    }
     const familyMatches = new Set(
       next.adults
         .filter(
@@ -217,5 +239,5 @@ export function reconcileInventory(
       event.manualParticipantIds = event.manualParticipantIds.filter((id) =>
         next.children.some((c) => c.id === id && c.source === 'manual'),
       );
-  return { state: next, mapping, added: added.length, missingEmail };
+  return { state: next, mapping, added: added.length, missingEmail, conflicts };
 }

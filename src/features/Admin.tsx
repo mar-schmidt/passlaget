@@ -1,3 +1,4 @@
+import PlayerSync from './PlayerSync';
 import SportAdminPanel, { type Integration } from './SportAdmin';
 import { attendanceEligible, attendanceWarnings } from '../domain/logic';
 import { useEffect, useRef, useState } from 'react';
@@ -125,7 +126,6 @@ export default function Admin({
   const [editing, setEditing] = useState<PortalEvent | null>(null);
   const [completion, setCompletion] = useState<string | null>(null);
   const [copying, setCopying] = useState<PortalEvent | null>(null);
-  const [inventoryFamily, setInventoryFamily] = useState<Family | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const upcoming = state.events
@@ -512,31 +512,21 @@ export default function Admin({
           <RoleSettings state={state} mutate={mutate} tell={tell} />
         </>
       )}
-      {page === 'familjer' && <Families state={state} mutate={mutate} tell={tell} />}
+      {page === 'familjer' && (
+        <Families
+          state={state}
+          mutate={mutate}
+          tell={tell}
+          refresh={refresh}
+          onOpenConnection={() => navigate('sportadmin')}
+        />
+      )}
       {page === 'fordelning' && <Fairness state={state} mutate={mutate} tell={tell} />}
       {page === 'sportadmin' && (
         <SportAdminPanel
           state={state}
           refresh={refresh}
-          onEditFamily={(id) =>
-            setInventoryFamily(
-              state.families.find((f) => f.id === id) || {
-                id: uid(),
-                label: '',
-                active: true,
-                exempt: false,
-              },
-            )
-          }
-        />
-      )}
-      {inventoryFamily && (
-        <FamilyEditor
-          family={inventoryFamily}
-          state={state}
-          mutate={mutate}
-          tell={tell}
-          onClose={() => setInventoryFamily(null)}
+          onOpenPlayers={() => navigate('familjer')}
         />
       )}
       {page === 'paminnelser' && <Reminders state={state} mutate={mutate} tell={tell} />}
@@ -1664,24 +1654,40 @@ function ConfirmationReminder({
   );
 }
 
-function Families({ state, mutate, tell }: { state: PortalState; mutate: Mutate; tell: Tell }) {
+function Families({
+  state,
+  mutate,
+  tell,
+  refresh,
+  onOpenConnection,
+}: {
+  state: PortalState;
+  mutate: Mutate;
+  tell: Tell;
+  refresh: () => Promise<void>;
+  onOpenConnection: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [showInactive, setShowInactive] = useState(false);
   const [editing, setEditing] = useState<Family | null>(null);
   const counts = balances(state);
-  const rows = state.families.filter(
-    (f) =>
-      (showInactive || f.active) &&
-      (
-        familyLabel(state, f.id) +
-        ' ' +
-        familyAdults(state, f.id)
-          .map((a) => a.name)
+  const visibleChildren = (familyId: string) =>
+    state.children.filter((c) => c.familyId === familyId && (showInactive || c.active));
+  const rows = state.families
+    .filter(
+      (f) =>
+        (showInactive || f.active) &&
+        visibleChildren(f.id).length > 0 &&
+        [
+          f.label,
+          ...visibleChildren(f.id).map((c) => c.name),
+          ...familyAdults(state, f.id).flatMap((a) => [a.name, a.phone, a.email || '']),
+        ]
           .join(' ')
-      )
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
+          .toLocaleLowerCase('sv')
+          .includes(query.toLocaleLowerCase('sv')),
+    )
+    .sort((a, b) => familyLabel(state, a.id).localeCompare(familyLabel(state, b.id), 'sv'));
   return (
     <>
       <div className="page-heading">
@@ -1699,6 +1705,7 @@ function Families({ state, mutate, tell }: { state: PortalState; mutate: Mutate;
           Lägg till spelare
         </button>
       </div>
+      <PlayerSync state={state} refresh={refresh} onOpenConnection={onOpenConnection} />
       <div className="toolbar">
         <div className="search-input">
           <Search size={18} />
@@ -1715,18 +1722,17 @@ function Families({ state, mutate, tell }: { state: PortalState; mutate: Mutate;
             checked={showInactive}
             onChange={(e) => setShowInactive(e.target.checked)}
           />
-          Visa även avslutade familjer
+          Visa även slutade spelare
         </label>
       </div>
       <section className="panel table-panel">
         <div className="table-scroll">
-          <table>
+          <table className="player-directory-table">
             <thead>
               <tr>
-                <th>Barn / familj</th>
-                <th>Vuxna & kontakt</th>
-                <th>Genomförda pass</th>
-                <th>Status</th>
+                <th>Spelare</th>
+                <th>Föräldrar & kontakt</th>
+                <th>Pass per familj</th>
                 <th />
               </tr>
             </thead>
@@ -1734,16 +1740,26 @@ function Families({ state, mutate, tell }: { state: PortalState; mutate: Mutate;
               {rows.map((f) => (
                 <tr key={f.id}>
                   <td>
-                    <div className="table-person">
-                      <span className="avatar">{familyLabel(state, f.id).slice(0, 1)}</span>
-                      <div>
-                        <strong>{familyLabel(state, f.id)}</strong>
-                        <small>
-                          {state.children.filter((c) => c.familyId === f.id && c.active).length > 1
-                            ? 'Syskon · gemensamt ansvar'
-                            : f.label}
-                        </small>
-                      </div>
+                    <div className="directory-children">
+                      {visibleChildren(f.id).map((child) => (
+                        <div key={child.id} className="directory-player">
+                          <strong>{child.name}</strong>
+                          <div className="player-statuses">
+                            <span
+                              className={`player-source-chip ${child.active && f.active ? 'synced' : 'inactive'}`}
+                            >
+                              {child.active && f.active ? 'AKTIV' : 'AVSLUTAD'}
+                            </span>
+                            <PlayerSourceChip synced={child.source === 'sportadmin'} />
+                            {f.exempt && (
+                              <span className="player-source-chip exempt">UNDANTAGEN</span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {state.children.filter((c) => c.familyId === f.id).length > 1 && (
+                        <small>Syskon · gemensamt ansvar</small>
+                      )}
                     </div>
                   </td>
                   <td>
@@ -1752,6 +1768,7 @@ function Families({ state, mutate, tell }: { state: PortalState; mutate: Mutate;
                         <div key={a.id}>
                           <strong>{a.name}</strong>
                           <span>{a.phone}</span>
+                          {a.email && <span>{a.email}</span>}
                         </div>
                       ))}
                     </div>
@@ -1762,15 +1779,12 @@ function Families({ state, mutate, tell }: { state: PortalState; mutate: Mutate;
                     </strong>
                   </td>
                   <td>
-                    <span
-                      className={`badge ${!f.active ? 'cancelled' : f.exempt ? 'exempt' : 'confirmed'}`}
-                    >
-                      {!f.active ? 'Avslutad' : f.exempt ? 'Undantagen' : 'Aktiv'}
-                    </span>
-                  </td>
-                  <td>
                     <button className="button ghost compact" onClick={() => setEditing(f)}>
-                      Redigera
+                      {state.children
+                        .filter((c) => c.familyId === f.id)
+                        .every((c) => c.source === 'sportadmin')
+                        ? 'Visa & bemanning'
+                        : 'Redigera'}
                       <ChevronRight size={15} />
                     </button>
                   </td>
@@ -1821,6 +1835,8 @@ function FamilyEditor({
   const [adults, setAdults] = useState<Adult[]>(() =>
     structuredClone(state.adults.filter((a) => a.familyIds.includes(family.id))),
   );
+  const hasSynced = children.some((c) => c.source === 'sportadmin');
+  const manualFamily = !children.length || children.some((c) => c.source !== 'sportadmin');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const patchChild = (id: string, value: Partial<Child>) =>
@@ -1828,7 +1844,17 @@ function FamilyEditor({
   const patchAdult = (id: string, value: Partial<Adult>) =>
     setAdults((old) => old.map((a) => (a.id === id ? { ...a, ...value } : a)));
   return (
-    <Modal title={family.label ? 'Redigera familj' : 'Lägg till spelare'} onClose={onClose} wide>
+    <Modal
+      title={
+        family.label
+          ? manualFamily
+            ? 'Redigera familj'
+            : 'Familj & bemanning'
+          : 'Lägg till spelare'
+      }
+      onClose={onClose}
+      wide
+    >
       <form
         onSubmit={async (e) => {
           e.preventDefault();
@@ -1858,116 +1884,146 @@ function FamilyEditor({
         }}
       >
         <div className="modal-body form-stack">
-          <label>
-            Familjens namn
-            <input
-              value={draft.label}
-              maxLength={140}
-              placeholder="Till exempel familjen Andersson"
-              onChange={(e) => setDraft({ ...draft, label: e.target.value })}
-            />
-          </label>
+          {hasSynced && (
+            <p className="hint">
+              Synkade spelar- och kontaktuppgifter ändras i SportAdmin. Här kan du ändra familjens
+              undantag och tillgänglighet.
+            </p>
+          )}
+          {!hasSynced && (
+            <label>
+              Familjens namn
+              <input
+                value={draft.label}
+                maxLength={140}
+                placeholder="Till exempel familjen Andersson"
+                onChange={(e) => setDraft({ ...draft, label: e.target.value })}
+              />
+            </label>
+          )}
           <div className="form-section">
             <h3>Barn i familjen</h3>
-            <p className="hint">Syskon och tvillingar läggs till i samma familj.</p>
-            {children.map((child) => (
-              <div className="person-edit-row" key={child.id}>
-                <label>
-                  Namn
-                  <input
-                    required
-                    maxLength={120}
-                    value={child.name}
-                    disabled={child.source === 'sportadmin'}
-                    onChange={(e) => patchChild(child.id, { name: e.target.value })}
-                  />
-                </label>
-                <label className="check-label">
-                  <input
-                    type="checkbox"
-                    checked={child.active}
-                    disabled={child.source === 'sportadmin'}
-                    onChange={(e) => patchChild(child.id, { active: e.target.checked })}
-                  />
-                  Aktiv i laget
-                </label>
-                <PlayerSourceChip synced={child.source === 'sportadmin'} />
-              </div>
-            ))}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() =>
-                setChildren([
-                  ...children,
-                  { id: uid(), name: '', familyId: family.id, active: true, source: 'manual' },
-                ])
-              }
-            >
-              <Plus size={16} />
-              Lägg till barn
-            </button>
+            {manualFamily && (
+              <p className="hint">Syskon och tvillingar läggs till i samma familj.</p>
+            )}
+            {children.map((child) =>
+              child.source === 'sportadmin' ? (
+                <div className="synced-person" key={child.id}>
+                  <strong>{child.name}</strong>
+                  <div className="player-statuses">
+                    <PlayerSourceChip synced />
+                    <span className={`player-source-chip ${child.active ? 'synced' : 'inactive'}`}>
+                      {child.active ? 'AKTIV' : 'AVSLUTAD'}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="person-edit-row" key={child.id}>
+                  <label>
+                    Namn
+                    <input
+                      required
+                      maxLength={120}
+                      value={child.name}
+                      onChange={(e) => patchChild(child.id, { name: e.target.value })}
+                    />
+                  </label>
+                  <label className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={child.active}
+                      onChange={(e) => patchChild(child.id, { active: e.target.checked })}
+                    />
+                    Aktiv i laget
+                  </label>
+                  <PlayerSourceChip synced={false} />
+                </div>
+              ),
+            )}
+            {manualFamily && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() =>
+                  setChildren([
+                    ...children,
+                    { id: uid(), name: '', familyId: family.id, active: true, source: 'manual' },
+                  ])
+                }
+              >
+                <Plus size={16} />
+                Lägg till barn
+              </button>
+            )}
           </div>
           <div className="form-section">
             <h3>Vuxna</h3>
-            {adults.map((adult) => (
-              <div className="person-edit-row adults" key={adult.id}>
-                <label>
-                  Namn
-                  <input
-                    required
-                    maxLength={120}
-                    value={adult.name}
-                    disabled={adult.source === 'sportadmin'}
-                    onChange={(e) => patchAdult(adult.id, { name: e.target.value })}
-                  />
-                </label>
-                <label>
-                  Telefon
-                  <input
-                    type="tel"
-                    required
-                    maxLength={30}
-                    value={adult.phone}
-                    disabled={adult.source === 'sportadmin'}
-                    onChange={(e) => patchAdult(adult.id, { phone: e.target.value })}
-                  />
-                </label>
-                <label>
-                  Mejladress
-                  <input
-                    type="email"
-                    maxLength={254}
-                    autoComplete="email"
-                    value={adult.email || ''}
-                    disabled={adult.source === 'sportadmin'}
-                    onChange={(e) => patchAdult(adult.id, { email: e.target.value })}
-                  />
-                </label>
-                <label className="check-label">
-                  <input
-                    type="checkbox"
-                    checked={adult.active}
-                    disabled={adult.source === 'sportadmin'}
-                    onChange={(e) => patchAdult(adult.id, { active: e.target.checked })}
-                  />
-                  Aktiv
-                </label>
-              </div>
-            ))}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() =>
-                setAdults([
-                  ...adults,
-                  { id: uid(), name: '', phone: '', familyIds: [family.id], active: true },
-                ])
-              }
-            >
-              <Plus size={16} />
-              Lägg till vuxen
-            </button>
+            {adults.map((adult) =>
+              adult.source === 'sportadmin' ? (
+                <div className="synced-person" key={adult.id}>
+                  <strong>{adult.name}</strong>
+                  <PlayerSourceChip synced />
+                  <span>{adult.phone}</span>
+                  <span>{adult.email || 'Mejladress saknas i SportAdmin'}</span>
+                  {!adult.active && <span className="hint">Avslutad kontakt</span>}
+                </div>
+              ) : (
+                <div className="person-edit-row adults" key={adult.id}>
+                  <label>
+                    Namn
+                    <input
+                      required
+                      maxLength={120}
+                      value={adult.name}
+                      onChange={(e) => patchAdult(adult.id, { name: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Telefon
+                    <input
+                      type="tel"
+                      required
+                      maxLength={30}
+                      value={adult.phone}
+                      onChange={(e) => patchAdult(adult.id, { phone: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Mejladress
+                    <input
+                      type="email"
+                      maxLength={254}
+                      autoComplete="email"
+                      value={adult.email || ''}
+                      onChange={(e) => patchAdult(adult.id, { email: e.target.value })}
+                    />
+                  </label>
+                  <label className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={adult.active}
+                      onChange={(e) => patchAdult(adult.id, { active: e.target.checked })}
+                    />
+                    Aktiv
+                  </label>
+                </div>
+              ),
+            )}
+            {manualFamily && (
+              <button
+                type="button"
+                className="text-button"
+                onClick={() =>
+                  setAdults([
+                    ...adults,
+                    { id: uid(), name: '', phone: '', familyIds: [family.id], active: true },
+                  ])
+                }
+              >
+                <Plus size={16} />
+                Lägg till vuxen
+              </button>
+            )}
             <p className="hint">
               Mejladresser visas bara här för administratören och används för tilldelningar och
               påminnelser. Uppgifter med status <PlayerSourceChip synced /> ändras i SportAdmin och
@@ -1976,15 +2032,16 @@ function FamilyEditor({
           </div>
           <div className="form-section form-stack">
             <h3>Fördelning & status</h3>
-            <label className="check-label">
-              <input
-                type="checkbox"
-                checked={draft.active}
-                disabled={children.some((c) => c.source === 'sportadmin')}
-                onChange={(e) => setDraft({ ...draft, active: e.target.checked })}
-              />
-              <span>Familjen är aktiv i laget</span>
-            </label>
+            {!hasSynced && (
+              <label className="check-label">
+                <input
+                  type="checkbox"
+                  checked={draft.active}
+                  onChange={(e) => setDraft({ ...draft, active: e.target.checked })}
+                />
+                <span>Familjen är aktiv i laget</span>
+              </label>
+            )}
             <label className="check-label">
               <input
                 type="checkbox"
@@ -2071,7 +2128,7 @@ function FamilyEditor({
         <div className="modal-footer">
           <span className="hint">Historik bevaras när någon slutar.</span>
           <BusyButton busy={busy} type="submit" className="button primary">
-            Spara familj
+            {hasSynced && !manualFamily ? 'Spara bemanning' : 'Spara familj'}
           </BusyButton>
         </div>
       </form>

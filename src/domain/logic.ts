@@ -166,7 +166,7 @@ function mergeAdults(state: PortalState, adults: Adult[]): Adult[] {
     state.adults,
     adults.map((adult) =>
       state.adults.find((a) => a.id === adult.id)?.source === 'sportadmin'
-        ? { ...state.adults.find((a) => a.id === adult.id)!, familyIds: adult.familyIds }
+        ? state.adults.find((a) => a.id === adult.id)!
         : adult.email === undefined
           ? {
               ...adult,
@@ -998,11 +998,16 @@ export function applyCommand(
         next.children,
         children.map((child) => {
           const old = next.children.find((c) => c.id === child.id);
-          return old?.source === 'sportadmin' ? { ...old, familyId: child.familyId } : child;
+          return old?.source === 'sportadmin' ? old : child;
         }),
       );
-      if (next.children.some((c) => c.familyId === family.id && c.source === 'sportadmin'))
+      if (next.children.some((c) => c.familyId === family.id && c.source === 'sportadmin')) {
         family.active = next.children.some((c) => c.familyId === family.id && c.active);
+        family.label = next.children
+          .filter((c) => c.familyId === family.id)
+          .map((c) => c.name)
+          .join(' & ');
+      }
       next.adults = mergeAdults(next, adults);
       validateRelations(next);
       summary = `Familjen ${family.label} sparades.`;
@@ -1519,10 +1524,17 @@ export function applyCommand(
         next.children,
         children.map((child) => {
           const old = next.children.find((c) => c.id === child.id);
-          return old?.source === 'sportadmin' ? { ...old, familyId: child.familyId } : child;
+          return old?.source === 'sportadmin' ? old : child;
         }),
       );
       next.adults = mergeAdults(next, adults);
+      for (const family of next.families) {
+        const managedChildren = next.children.filter((c) => c.familyId === family.id);
+        if (managedChildren.some((c) => c.source === 'sportadmin')) {
+          family.active = managedChildren.some((c) => c.active);
+          family.label = managedChildren.map((c) => c.name).join(' & ');
+        }
+      }
       for (const entry of history) {
         if (entry.verified && timestamp(entry.endsAt) > timestamp(at))
           failure(

@@ -3894,3 +3894,138 @@ tr:last-child td {
     text-align: right;
   }
 }
+
+/* Player register: one directory for local and SportAdmin-managed families. */
+.player-source-chip.inactive {
+  color: #893f35;
+  background: #f2e2dc;
+  border-color: #e3c7bf;
+}
+.player-source-chip.exempt {
+  color: #78511f;
+  background: #f5e9d4;
+  border-color: #e7d3ae;
+}
+.player-statuses,
+.identity-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.player-sync {
+  margin-bottom: 24px;
+  padding: 22px;
+}
+.player-sync-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.player-sync-heading h2 {
+  margin-bottom: 4px;
+}
+.player-sync .notice {
+  margin-top: 14px;
+}
+.identity-matches {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+.identity-match {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.identity-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+}
+.identity-comparison p,
+.synced-person span,
+.player-directory-table .contact-list span {
+  overflow-wrap: anywhere;
+}
+.identity-comparison h3 {
+  margin-top: 8px;
+}
+.identity-match .hint {
+  margin: 16px 0;
+}
+.directory-children,
+.directory-player {
+  display: grid;
+  gap: 8px;
+}
+.directory-children {
+  gap: 16px;
+}
+.directory-children small {
+  color: var(--muted);
+}
+.synced-person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.synced-person > span:not(.player-source-chip) {
+  flex-basis: 100%;
+}
+.player-directory-table td {
+  vertical-align: top;
+}
+.player-directory-table .contact-list {
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .identity-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .identity-comparison > div + div {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  .player-directory-table,
+  .player-directory-table tbody {
+    display: block;
+    min-width: 0;
+  }
+  .player-directory-table thead {
+    display: none;
+  }
+  .player-directory-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 16px 10px;
+  }
+  .player-directory-table td {
+    border: 0;
+    padding: 0 16px;
+  }
+  .player-directory-table td:nth-child(1) {
+    grid-column: 1 / -1;
+  }
+  .player-directory-table td:nth-child(2) {
+    grid-column: 1 / -1;
+  }
+  .player-directory-table td:nth-child(3)::after {
+    content: ' genomförda pass';
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .player-directory-table td:nth-child(4) {
+    justify-self: end;
+    padding-left: 0;
+  }
+}

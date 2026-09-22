@@ -23,6 +23,15 @@ export interface Adult {
   active: boolean;
   source?: 'manual' | 'sportadmin';
 }
+/** Private admin information; never included in the public portal state. */
+export interface InventoryMatch {
+  childId: string;
+  memberId: number;
+  name: string;
+  active: boolean;
+  guardians: { name: string; phone: string; email: string }[];
+}
+export type InventoryIdentityPair = Pick<InventoryMatch, 'childId' | 'memberId'>;
 export interface Family {
   id: string;
   label: string;

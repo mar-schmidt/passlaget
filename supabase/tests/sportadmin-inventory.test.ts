@@ -98,7 +98,10 @@ test('manual player who later appears in SportAdmin requires identity confirmati
   const s = fixture(),
     child = s.children[2];
   const r = roster([{ id: 99, name: child.name, active: true, guardians: [] }]);
-  expect(() => reconcileInventory(s, r, {})).toThrow('Koppla den manuella spelaren');
+  const pending = reconcileInventory(s, r, {});
+  expect(pending.conflicts).toMatchObject([{ childId: child.id, memberId: 99, name: child.name }]);
+  expect(pending.state.children.filter((c) => c.name === child.name)).toHaveLength(1);
+  expect(pending.state.children.find((c) => c.id === child.id)?.source).toBe('manual');
   const linked = reconcileInventory(s, r, { [child.id]: 99 });
   expect(linked.state.children.filter((c) => c.name === child.name)).toHaveLength(1);
   expect(linked.state.children.find((c) => c.id === child.id)?.source).toBe('sportadmin');
@@ -208,4 +211,83 @@ test('synced parent confirmation uses SportAdmin contacts and keeps their email 
   });
   expect(JSON.stringify(publicState(next))).not.toContain(guardian.email);
   expect(publicState(next).adults.find((a) => a.id === adult.id)?.source).toBe('sportadmin');
+});
+
+test('pending manual matches do not block other register updates and distinct people stay separate on later syncs', () => {
+  const s = fixture();
+  const child = s.children[2];
+  const before = structuredClone(s);
+  const r = roster([
+    {
+      id: 99,
+      name: child.name.toUpperCase(),
+      active: true,
+      guardians: [{ ...guardian, name: 'Other Parent', email: 'other@example.test' }],
+    },
+    { id: 88, name: 'New Player', active: true, guardians: [] },
+    { id: 7, name: s.children[0].name, active: false, guardians: [] },
+  ]);
+  const pending = reconcileInventory(s, r, { [s.children[0].id]: 7 });
+  expect(pending.conflicts).toHaveLength(1);
+  expect(pending.state.children.find((c) => c.id === s.children[0].id)?.active).toBe(false);
+  expect(pending.state.children.some((c) => c.name === 'New Player')).toBe(true);
+  expect(pending.state.children.find((c) => c.id === child.id)).toEqual(child);
+  const distinct = [{ childId: child.id, memberId: 99 }];
+  const next = reconcileInventory(pending.state, r, pending.mapping, [], distinct);
+  expect(next.conflicts).toHaveLength(0);
+  expect(next.state.children.find((c) => c.id === child.id)).toEqual(child);
+  const other = next.state.children.find((c) => next.mapping[c.id] === 99)!;
+  expect(other.source).toBe('sportadmin');
+  expect(other.familyId).not.toBe(child.familyId);
+  expect(reconcileInventory(next.state, r, next.mapping, [], distinct).state).toEqual(next.state);
+  expect(next.state.events).toEqual(s.events);
+  expect(next.state.history).toEqual(s.history);
+  expect(s).toEqual(before);
+});
+test('a different-person decision is tied to the exact pair and does not silence other candidates', () => {
+  const s = fixture(),
+    child = s.children[2];
+  const r = roster([99, 100].map((id) => ({ id, name: child.name, active: true, guardians: [] })));
+  const result = reconcileInventory(s, r, {}, [], [{ childId: child.id, memberId: 99 }]);
+  expect(result.conflicts.map((m) => m.memberId)).toEqual([100]);
+  expect(result.mapping[child.id]).toBeUndefined();
+  expect(Object.values(result.mapping)).toContain(99);
+});
+test('synced identity and contact family links cannot be edited but staffing exemptions and availability can', () => {
+  const s = fixture(),
+    child = s.children[0],
+    adult = s.adults[0],
+    family = s.families[0];
+  child.source = 'sportadmin';
+  adult.source = 'sportadmin';
+  const unavailable = [
+    { startsAt: '2030-10-01T10:00:00.000Z', endsAt: '2030-10-01T12:00:00.000Z' },
+  ];
+  const next = applyCommand(
+    s,
+    {
+      type: 'save_family',
+      family: { ...family, label: 'Override', active: false, exempt: true, unavailable },
+      children: [child],
+      adults: [adult],
+    },
+    'admin',
+  );
+  expect(next.children[0]).toEqual(child);
+  expect(next.adults[0]).toEqual(adult);
+  expect(next.families[0]).toMatchObject({ active: true, exempt: true, unavailable });
+  expect(next.families[0].label).not.toBe('Override');
+  const imported = applyCommand(
+    s,
+    {
+      type: 'import_data',
+      families: [],
+      children: [{ ...child, familyId: s.families[1].id }],
+      adults: [{ ...adult, familyIds: [s.families[1].id] }],
+      history: [],
+    },
+    'admin',
+  );
+  expect(imported.children[0]).toEqual(child);
+  expect(imported.adults[0]).toEqual(adult);
 });

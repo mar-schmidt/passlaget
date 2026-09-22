@@ -35,6 +35,7 @@ function fixture() {
     if (op === 'finish') {
       if (conflicts-- > 0) throw new HttpError(409, 'conflict');
       if (args.state) state = args.state;
+      if (args.data) Object.assign(data, args.data);
       return {};
     }
     return null;
@@ -260,4 +261,134 @@ test('event and first manual participant can be saved together with an empty cal
   expect(
     result!.state.events.find((e) => e.id === event.id)?.draft.shifts[0].slots[0].familyId,
   ).toBe(child.familyId);
+});
+
+function matchingFixture() {
+  const f = fixture();
+  f.state.children.forEach((c) => {
+    c.source = 'manual';
+  });
+  f.data.inventoryEnabled = true;
+  delete f.data.error;
+  const child = f.state.children[0];
+  const roster = {
+    clubId: 1,
+    groupId: 2,
+    groupName: 'P2018',
+    checkedAt: new Date().toISOString(),
+    players: [
+      {
+        id: 99,
+        name: child.name,
+        active: true,
+        guardians: [
+          {
+            position: 1,
+            name: f.state.adults[0].name,
+            email: 'synced@example.test',
+            phone: '0701234567',
+          },
+        ],
+      },
+    ],
+  };
+  f.data.roster = roster;
+  vi.spyOn(SportAdmin.prototype, 'roster').mockResolvedValue(roster);
+  return { f, child, roster };
+}
+test('identity confirmation upgrades the original manual player atomically and retains history, assignments and exemption', async () => {
+  const { f, child } = matchingFixture();
+  f.state.families.find((family) => family.id === child.familyId)!.exempt = true;
+  const before = structuredClone(f.state);
+  const result = await sportadminAction(
+    {
+      operation: 'resolve_inventory_match',
+      childId: child.id,
+      memberId: 99,
+      resolution: 'sync',
+      expectedVersion: f.state.version,
+    },
+    f.state,
+    f.rpc,
+    f.load,
+  );
+  expect(result!.state.children.find((c) => c.id === child.id)).toEqual({
+    ...child,
+    source: 'sportadmin',
+  });
+  expect(result!.state.children.filter((c) => c.name === child.name)).toHaveLength(1);
+  expect(result!.integration.mapping[child.id]).toBe(99);
+  expect(result!.integration.inventoryConflicts).toEqual([]);
+  expect(result!.state.families.find((family) => family.id === child.familyId)?.exempt).toBe(true);
+  expect(result!.state.history).toEqual(before.history);
+  expect(result!.state.events).toEqual(before.events);
+  expect(result!.state.adults[0].email).toBe('synced@example.test');
+  expect(f.calls.filter((x) => x === 'finish')).toHaveLength(1);
+});
+test('different-person decision is persisted and manual identity stays editable across repeated inventory reads', async () => {
+  const { f, child } = matchingFixture();
+  const result = await sportadminAction(
+    {
+      operation: 'resolve_inventory_match',
+      childId: child.id,
+      memberId: 99,
+      resolution: 'different',
+      expectedVersion: f.state.version,
+    },
+    f.state,
+    f.rpc,
+    f.load,
+  );
+  expect(result!.state.children.find((c) => c.id === child.id)).toEqual(child);
+  expect(result!.state.children.filter((c) => c.name === child.name)).toHaveLength(2);
+  expect(f.data.distinctPeople).toEqual([{ childId: child.id, memberId: 99 }]);
+  const next = await sportadminAction({ operation: 'inventory_sync' }, f.state, f.rpc, f.load);
+  expect(next!.integration.inventoryConflicts).toEqual([]);
+  expect(next!.state.children).toEqual(result!.state.children);
+});
+test('identity decisions reject stale state, unrelated pairs and an unsupported keep-manual choice', async () => {
+  const { f, child } = matchingFixture();
+  for (const patch of [
+    { expectedVersion: f.state.version - 1 },
+    { memberId: 100 },
+    { resolution: 'keep_manual' },
+  ]) {
+    await expect(
+      sportadminAction(
+        {
+          operation: 'resolve_inventory_match',
+          childId: child.id,
+          memberId: 99,
+          resolution: 'sync',
+          expectedVersion: f.state.version,
+          ...patch,
+        },
+        f.state,
+        f.rpc,
+        f.load,
+      ),
+    ).rejects.toThrow();
+  }
+  expect(f.calls).not.toContain('finish');
+});
+test('conflicting identity save cannot partially commit the mapping or overwrite a concurrent edit', async () => {
+  const { f, child } = matchingFixture();
+  f.conflict();
+  await expect(
+    sportadminAction(
+      {
+        operation: 'resolve_inventory_match',
+        childId: child.id,
+        memberId: 99,
+        resolution: 'sync',
+        expectedVersion: f.state.version,
+      },
+      f.state,
+      f.rpc,
+      f.load,
+    ),
+  ).rejects.toThrow('conflict');
+  expect(f.data.mapping[child.id]).toBeUndefined();
+  expect(f.state.children.find((c) => c.id === child.id)?.source).toBe('manual');
+  expect(f.calls.at(-1)).toBe('release');
 });

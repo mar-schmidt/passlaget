@@ -1,5 +1,9 @@
 import { applyCommand, attendanceEligible, DomainError } from '../../../src/domain/logic.ts';
-import type { PortalState } from '../../../src/domain/model.ts';
+import type {
+  InventoryIdentityPair,
+  InventoryMatch,
+  PortalState,
+} from '../../../src/domain/model.ts';
 import {
   SportAdmin,
   SportAdminError,
@@ -29,6 +33,8 @@ interface Connection {
   inventoryEnabled?: boolean;
   roster?: Roster;
   rosterError?: string;
+  inventoryConflicts?: InventoryMatch[];
+  distinctPeople?: InventoryIdentityPair[];
 }
 const safeError = (error: unknown) =>
   error instanceof SportAdminError
@@ -48,6 +54,7 @@ export function connectionStatus(c: Connection | null) {
     rosterStatus: c?.rosterStatus,
     inventoryEnabled: !!c?.inventoryEnabled,
     rosterError: c?.rosterError,
+    inventoryConflicts: c?.inventoryConflicts || [],
     inventory: c?.roster
       ? {
           checkedAt: c.roster.checkedAt,
@@ -97,6 +104,12 @@ export async function sportadminAction(
 ) {
   const op = body.operation;
   const savingEvent = op === 'save_event';
+  const resolvingIdentity = op === 'resolve_inventory_match';
+  if (
+    resolvingIdentity &&
+    (!Number.isInteger(body.expectedVersion) || body.expectedVersion !== state.version)
+  )
+    throw new HttpError(409, 'Spelarlistan har ändrats. Uppdatera och granska matchningen igen.');
   if (
     savingEvent &&
     (!Number.isInteger(body.expectedVersion) || body.expectedVersion !== state.version)
@@ -125,6 +138,7 @@ export async function sportadminAction(
       'disconnect',
       'save_event',
       'inventory_sync',
+      'resolve_inventory_match',
     ].includes(op)
   )
     throw new HttpError(400, 'Okänd SportAdmin-åtgärd.');
@@ -140,23 +154,47 @@ export async function sportadminAction(
       const latest = await load(state.team.slug);
       if (savingEvent && latest.version !== body.expectedVersion)
         throw new HttpError(409, 'Schemat har ändrats. Öppna evenemanget igen.');
+      if (resolvingIdentity && latest.version !== body.expectedVersion)
+        throw new HttpError(
+          409,
+          'Spelarlistan har ändrats. Uppdatera och granska matchningen igen.',
+        );
       let next = structuredClone(latest);
       if (inventoryUpdated && c.roster) {
+        if (resolvingIdentity) {
+          const current = reconcileInventory(next, c.roster, c.mapping || {}, [], c.distinctPeople);
+          if (
+            !current.conflicts.some(
+              (m) => m.childId === body.childId && m.memberId === body.memberId,
+            )
+          )
+            throw new HttpError(409, 'Matchningen gäller inte längre. Uppdatera spelarlistan.');
+          if (body.resolution === 'sync') c.mapping![body.childId] = body.memberId;
+          else
+            c.distinctPeople = [
+              ...(c.distinctPeople || []),
+              { childId: body.childId, memberId: body.memberId },
+            ];
+        }
         const result = reconcileInventory(
           next,
           c.roster,
           c.mapping || {},
           op === 'inventory_sync' && Array.isArray(body.manualChildIds) ? body.manualChildIds : [],
+          c.distinctPeople,
         );
         next = result.state;
         c.mapping = result.mapping;
-        if (JSON.stringify(next) !== JSON.stringify(latest))
+        c.inventoryConflicts = result.conflicts;
+        if (resolvingIdentity || JSON.stringify(next) !== JSON.stringify(latest))
           next.audit.push({
             id: `audit:${latest.version + 1}`,
             at: c.roster.checkedAt,
             actor: 'admin',
             action: 'sportadmin_inventory',
-            summary: `Spelarinventeringen uppdaterades från ${c.roster.groupName}. ${result.added} nya spelare. Historiken behölls.`,
+            summary: resolvingIdentity
+              ? `Spelarmatchning granskad: ${latest.children.find((p) => p.id === body.childId)?.name}. ${body.resolution === 'sync' ? 'Ändrad till synkad. Befintlig familj, historik och pass behölls.' : 'Inte samma person. Den manuella spelaren behölls separat.'}`
+              : `Spelarinventeringen uppdaterades från ${c.roster.groupName}. ${result.added} nya spelare. Historiken behölls.`,
           });
       }
       next = applyAttendance(next, c);
@@ -194,13 +232,29 @@ export async function sportadminAction(
         finished = true;
         return { integration: connectionStatus(c), state: next };
       } catch (error) {
-        if (savingEvent || !(error instanceof HttpError && error.status === 409) || attempt === 2)
+        if (
+          savingEvent ||
+          resolvingIdentity ||
+          !(error instanceof HttpError && error.status === 409) ||
+          attempt === 2
+        )
           throw error;
       }
     }
     throw new HttpError(409, 'Schemat uppdateras. Försök igen.');
   }
   try {
+    if (
+      resolvingIdentity &&
+      (!c.inventoryEnabled ||
+        !['sync', 'different'].includes(body.resolution) ||
+        typeof body.childId !== 'string' ||
+        !Number.isSafeInteger(body.memberId))
+    )
+      throw new HttpError(
+        400,
+        'Välj Ändra till synkad eller Inte samma person för en aktuell matchning.',
+      );
     if (
       body.manualChildIds !== undefined &&
       (op !== 'inventory_sync' ||
@@ -331,6 +385,7 @@ export async function sportadminAction(
           roster,
           c.mapping,
           op === 'inventory_sync' && Array.isArray(body.manualChildIds) ? body.manualChildIds : [],
+          c.distinctPeople,
         );
         c.roster = roster;
         c.inventoryEnabled = true;
@@ -376,6 +431,11 @@ export async function sportadminAction(
         !state.children.some((child) => child.id === body.childId)
       )
         throw new HttpError(400, 'Välj en spelare i Passlaget.');
+      if (
+        c.inventoryEnabled &&
+        state.children.find((child) => child.id === body.childId)?.source === 'sportadmin'
+      )
+        throw new HttpError(400, 'Synkade spelare hanteras i SportAdmin.');
       if (body.memberId === null) {
         if (c.inventoryEnabled && c.mapping[body.childId])
           throw new HttpError(
@@ -405,6 +465,12 @@ export async function sportadminAction(
         c.rosterStatus = 'ready';
         delete c.rosterError;
       }
+    }
+    if (resolvingIdentity) {
+      c.roster = await api.roster();
+      inventoryUpdated = true;
+      c.rosterStatus = 'ready';
+      delete c.rosterError;
     }
     if (op === 'link' || savingEvent) {
       if (
@@ -450,12 +516,21 @@ export async function sportadminAction(
       c.lastSyncAt = new Date().toISOString();
     }
     if (
-      ['sync', 'connect', 'select', 'preview', 'link', 'save_event', 'inventory_sync'].includes(op)
+      [
+        'sync',
+        'connect',
+        'select',
+        'preview',
+        'link',
+        'save_event',
+        'inventory_sync',
+        'resolve_inventory_match',
+      ].includes(op)
     )
       delete c.error;
     return await finish();
   } catch (error) {
-    if (savingEvent) {
+    if (savingEvent || resolvingIdentity) {
       if (error instanceof HttpError || error instanceof DomainError) throw error;
       throw new HttpError(503, safeError(error));
     }
