@@ -1,5 +1,8 @@
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { copyFile, mkdir } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { defaultTeamSlug, teamPathSegment } from './src/domain/team-path.ts';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const url = env.VITE_SUPABASE_URL?.trim(),
@@ -23,5 +26,33 @@ export default defineConfig(({ mode }) => {
     if (!url?.startsWith('https://') && !/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(url || ''))
       throw new Error('Använd HTTPS för Supabase-adressen, eller en lokal testserver.');
   }
-  return { plugins: [react()], base: env.VITE_BASE_PATH || '/', build: { sourcemap: false } };
+  return {
+    plugins: [
+      react(),
+      {
+        name: 'team-entry-pages',
+        apply: 'build',
+        async closeBundle() {
+          const output = resolve('dist');
+          const slugs = new Set([
+            defaultTeamSlug,
+            ...(env.VITE_TEAM_SLUGS || '')
+              .split(',')
+              .map((slug) => slug.trim())
+              .filter(Boolean),
+          ]);
+          for (const slug of slugs) {
+            const directory = resolve(output, teamPathSegment(slug));
+            await mkdir(directory, { recursive: true });
+            await copyFile(resolve(output, 'index.html'), resolve(directory, 'index.html'));
+          }
+          // GitHub Pages serves this entry for new team paths and invalid URLs.
+          // The app checks the live directory before loading any team's portal.
+          await copyFile(resolve(output, 'index.html'), resolve(output, '404.html'));
+        },
+      },
+    ],
+    base: env.VITE_BASE_PATH || '/',
+    build: { sourcemap: false },
+  };
 });

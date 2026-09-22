@@ -1,4 +1,5 @@
 import { hasEventBase, staleDataMessage } from './domain/event-concurrency';
+import { rememberedFamily, teamSlugFromPath } from './team-routing';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -49,6 +50,10 @@ const adminPages = [
   { id: 'paminnelser', name: mailEnabled ? 'Mejl & drift' : 'Kontakt & drift', icon: Mail },
 ] as const;
 export default function App() {
+  const teamSlug =
+    teamSlugFromPath(location.pathname, import.meta.env.BASE_URL) ||
+    import.meta.env.VITE_TEAM_SLUG ||
+    'landvetter-p2018';
   const [state, setState] = useState<PortalState | null>(null);
   const stateRef = useRef<PortalState | null>(null);
   const readSequence = useRef(0);
@@ -59,7 +64,7 @@ export default function App() {
   const [recovery, setRecovery] = useState(false);
   const [menu, setMenu] = useState(false);
   const [page, setPage] = useState<Page>(route);
-  const [familyId, setFamilyId] = useState(() => localStorage.getItem('passlaget-family') || '');
+  const [familyId, setFamilyId] = useState(() => rememberedFamily(localStorage, teamSlug));
   const [toast, setToast] = useState<{ text: string; error: boolean } | null>(null);
   const [subscriptionAction, setSubscriptionAction] = useState<{
     action: 'verify_subscription' | 'unsubscribe';
@@ -182,8 +187,9 @@ export default function App() {
   }
   const pickFamily = (id: string) => {
     setFamilyId(id);
-    localStorage.setItem('passlaget-family', id);
+    localStorage.setItem(`passlaget-family:${teamSlug}`, id);
   };
+  const teamName = state ? `${state.team.clubName} ${state.team.name}` : 'Passlaget';
   const parentView = page === 'foraldrar' || !admin;
   return (
     <div className={`app-shell ${parentView ? 'parent-layout' : 'admin-layout'}`}>
@@ -197,14 +203,16 @@ export default function App() {
               navigate('foraldrar');
             }}
           >
-            <img
-              className="club-crest"
-              src={`${import.meta.env.BASE_URL}landvetter-is.png`}
-              alt=""
-              width={48}
-              height={46}
-            />
-            <span>Landvetter IS P2018</span>
+            {teamSlug === 'landvetter-p2018' && (
+              <img
+                className="club-crest"
+                src={`${import.meta.env.BASE_URL}landvetter-is.png`}
+                alt=""
+                width={48}
+                height={46}
+              />
+            )}
+            <span>{teamName}</span>
           </a>
           <button
             className="icon-button sidebar-close"
@@ -266,14 +274,16 @@ export default function App() {
                 navigate('foraldrar');
               }}
             >
-              <img
-                className="club-crest"
-                src={`${import.meta.env.BASE_URL}landvetter-is.png`}
-                alt=""
-                width={48}
-                height={46}
-              />
-              <span>Landvetter IS P2018</span>
+              {teamSlug === 'landvetter-p2018' && (
+                <img
+                  className="club-crest"
+                  src={`${import.meta.env.BASE_URL}landvetter-is.png`}
+                  alt=""
+                  width={48}
+                  height={46}
+                />
+              )}
+              <span>{teamName}</span>
             </a>
           </header>
         ) : (

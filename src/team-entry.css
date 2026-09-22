@@ -1,0 +1,43 @@
+.team-entry {
+  max-width: 620px;
+  margin: 9vh auto;
+  padding: 24px;
+  color: #272c28;
+}
+.team-entry-brand {
+  color: #a83f2e;
+  font-weight: 700;
+}
+.team-entry h1 {
+  font:
+    400 clamp(32px, 6vw, 48px)/1.15 Georgia,
+    serif;
+}
+.team-entry nav {
+  display: grid;
+  gap: 12px;
+  margin-top: 28px;
+}
+.team-entry nav a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 60px;
+  padding: 14px 18px;
+  color: inherit;
+  background: #fffdf9;
+  border: 1px solid #d4cec2;
+  text-decoration: none;
+}
+.team-entry nav a:hover {
+  background: #eee5d8;
+}
+.team-entry nav a:focus-visible {
+  outline: 3px solid #a83f2e;
+  outline-offset: 3px;
+}
+.team-loading {
+  margin: 10vh auto;
+  text-align: center;
+}

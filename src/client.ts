@@ -1,4 +1,5 @@
 import { prepareEventCommand, staleDataMessage } from './domain/event-concurrency';
+import { teamSlugFromPath } from './team-routing';
 import { createClient } from '@supabase/supabase-js';
 import { applyCommand, publicState } from './domain/logic';
 import { demoState } from './domain/demo';
@@ -14,7 +15,10 @@ export const supabase = !isDemo
     })
   : null;
 const storageKey = 'passlaget-demo-v1';
-const teamSlug = import.meta.env.VITE_TEAM_SLUG || 'landvetter-p2018';
+const teamSlug =
+  teamSlugFromPath(location.pathname, import.meta.env.BASE_URL) ||
+  import.meta.env.VITE_TEAM_SLUG ||
+  'landvetter-p2018';
 const demoRead = (): PortalState => {
   try {
     const saved = localStorage.getItem(storageKey);

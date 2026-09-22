@@ -49,6 +49,10 @@ const rpc = async (op, args = {}) =>
 for (const role of ['anon', 'authenticated']) {
   await db.exec(`set role ${role}`);
   await assert.rejects(
+    () => db.query('select * from public.portal_team_directory()'),
+    /permission denied/,
+  );
+  await assert.rejects(
     () => db.query("select * from public.portal_admin_contacts('t1')"),
     /permission denied/,
   );
@@ -73,6 +77,10 @@ await db.exec(`
 const contacts = async (teamId) =>
   (await db.query('select * from public.portal_admin_contacts($1)', [teamId])).rows;
 await db.exec('set role service_role');
+assert.deepEqual((await db.query('select * from public.portal_team_directory()')).rows, [
+  { slug: 'team-one', name: 'Testlag', club_name: '' },
+  { slug: 'team-two', name: 'Testlag', club_name: '' },
+]);
 assert.deepEqual(await contacts('t1'), [
   { name: 'admin@example.test', email: 'admin@example.test' },
 ]);

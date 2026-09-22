@@ -1,10 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App';
+import TeamEntry from './TeamEntry';
 import './styles.css';
 import './theme-matchday.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <TeamEntry />
   </React.StrictMode>,
 );

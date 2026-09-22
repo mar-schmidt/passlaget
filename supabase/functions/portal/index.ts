@@ -6,6 +6,7 @@ import {
   eventBusyMessage,
 } from '../../../src/domain/event-concurrency.ts';
 import { sportadminAction } from '../_shared/sportadmin.ts';
+import { teamPortalUrl } from '../../../src/domain/team-path.ts';
 import { createClient } from '@supabase/supabase-js';
 import { applyCommand, publicState, DomainError } from '../../../src/domain/logic.ts';
 import { buildContactMailJobs, validContactMailEntries } from '../_shared/contact-mail.ts';
@@ -146,7 +147,11 @@ async function prepareMail(body: Record<string, any>) {
       Date.parse(subscription.verify_expires_at) <= Date.now()
     )
       return suppress('verification_expired');
-    const link = portalLink(appUrl, 'subscription', mail.payload.token);
+    const link = portalLink(
+      teamPortalUrl(appUrl, state.team.slug),
+      'subscription',
+      mail.payload.token,
+    );
     return {
       skip: false,
       message: {
@@ -198,7 +203,7 @@ async function prepareMail(body: Record<string, any>) {
           mail.subject,
           valid,
           mail.payload.confirmationOnly ? 'confirmation' : mail.kind,
-          appUrl,
+          teamPortalUrl(appUrl, state.team.slug),
           '',
         ),
       },
@@ -208,7 +213,7 @@ async function prepareMail(body: Record<string, any>) {
   const valid = validMailEntries(mail.kind, mail.payload, state, subscription);
   if (!valid.length) return suppress('stale_or_unsubscribed');
   const unsubscribe = portalLink(
-    appUrl,
+    teamPortalUrl(appUrl, state.team.slug),
     'unsubscribe',
     await signToken(subscription.id, tokenSecret),
   );
@@ -216,7 +221,13 @@ async function prepareMail(body: Record<string, any>) {
     skip: false,
     message: {
       to: subscription.email,
-      ...renderMail(mail.subject, valid, mail.kind, appUrl, unsubscribe),
+      ...renderMail(
+        mail.subject,
+        valid,
+        mail.kind,
+        teamPortalUrl(appUrl, state.team.slug),
+        unsubscribe,
+      ),
     },
   };
 }
@@ -303,6 +314,7 @@ export async function handle(request: Request): Promise<Response> {
       return response({ updated });
     }
     const globalLimits: Record<string, [number, number]> = {
+      teams: [600, 60],
       admin_contacts: [120, 60],
       sportadmin: [60, 60],
       read: [600, 60],
@@ -331,6 +343,14 @@ export async function handle(request: Request): Promise<Response> {
         'rate_limited',
       );
     await rateLimit(request, action, '', action === 'read' ? 120 : 40);
+    if (action === 'teams') {
+      const { data, error } = await db.rpc('portal_team_directory');
+      if (error || !Array.isArray(data))
+        throw new HttpError(503, 'Lagen kunde inte hämtas. Försök igen.');
+      return response({
+        teams: data.map(({ slug, name, club_name }) => ({ slug, name, clubName: club_name })),
+      });
+    }
     if (action === 'request_recovery') {
       const email = normalizeEmail(body.email);
       await rateLimit(request, 'recovery_email', email, 3, 3600);

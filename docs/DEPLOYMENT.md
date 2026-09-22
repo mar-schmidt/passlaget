@@ -62,7 +62,11 @@ Efter aktivering av arbetsflödet: välj **GitHub Actions** som källa i GitHub 
 
 En publicerbar nyckel är avsedd för webbläsaren. Säkerheten ligger i behörighetskontrollerna och de privata tabellerna. **Lägg aldrig en hemlig backendnyckel i en `VITE_`-variabel.**
 
-Hashadresser, till exempel `#/foraldrar`, fungerar utan serveromskrivningar på GitHub Pages. Återställning och mejlverifiering landar på portalens vanliga basadress.
+Lagens adresser använder en egen sökväg under portalens basadress. `LandvetterISP2018` pekar på databasens lag `landvetter-p2018`; andra lag använder sitt `slug`. Den gamla rotadressen hämtar lagkatalogen från servern: exakt ett lag öppnas direkt, flera lag visar ett lagval. Okända lagadresser visar ett fel och lagval i stället för att välja ett annat lag. Katalogen innehåller endast lagens namn och slug, inga medlemsuppgifter.
+
+Bygget skapar `LandvetterISP2018/index.html` och `404.html` med samma app och absoluta tillgångslänkar. Direktbesök och omladdning fungerar därför på GitHub Pages. Ange ytterligare lag i `VITE_TEAM_SLUGS` (kommaseparerade databas-sluggar) vid nästa bygge för att även ge dem egna HTML-filer med HTTP 200. Nya lag fungerar redan via 404-sidans app, men får HTTP 404 tills deras HTML-fil har publicerats.
+
+Hashadresser, till exempel `#/foraldrar`, används fortfarande inom laget. Omdirigeringen bevarar både frågeparametrar och fragment, inklusive gamla mejl- och återställningslänkar. `APP_URL` på servern ska fortsatt vara portalens **rotadress**, inte en lagadress. Nya bemanningsmejl och prenumerationslänkar får lagets sökväg; lösenordsåterställning behåller den redan godkända rotadressen. Vald familj lagras per lag, och det äldre familjevalet migreras enbart till Landvetter IS P2018.
 
 Till dess uppdateras `gh-pages` från ett kontrollerat `npm run build` med `VITE_BASE_PATH=/passlaget/`. Lägg bara `dist/` och en tom `.nojekyll` på den grenen, aldrig projektroten. Bevara branchhistoriken och kontrollera publiceringens status i GitHub Pages.
 
