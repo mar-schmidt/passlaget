@@ -47,6 +47,7 @@ import {
   familyLabel,
   Modal,
   Notice,
+  PlayerSourceChip,
   roleEmoji,
   Status,
   timeRange,
@@ -1890,7 +1891,7 @@ function FamilyEditor({
                   />
                   Aktiv i laget
                 </label>
-                <span className="badge">{child.source === 'sportadmin' ? 'synka' : 'manuell'}</span>
+                <PlayerSourceChip synced={child.source === 'sportadmin'} />
               </div>
             ))}
             <button
@@ -1969,7 +1970,8 @@ function FamilyEditor({
             </button>
             <p className="hint">
               Mejladresser visas bara här för administratören och används för tilldelningar och
-              påminnelser. Uppgifter med status synka ändras i SportAdmin och uppdateras sedan här.
+              påminnelser. Uppgifter med status <PlayerSourceChip synced /> ändras i SportAdmin och
+              uppdateras sedan här.
             </p>
           </div>
           <div className="form-section form-stack">

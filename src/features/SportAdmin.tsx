@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, isDemo } from '../client';
 import type { PortalState } from '../domain/model';
 import { attendanceWarnings } from '../domain/logic';
+import { PlayerSourceChip } from '../ui';
 
 interface Profile {
   clubId: number;
@@ -201,8 +202,9 @@ export default function SportAdminPanel({
                   <div>
                     <h2>Spelarinventeringen</h2>
                     <p>
-                      SportAdmins register gäller för spelare med status <strong>synka</strong>.
-                      Spelare med status <strong>manuell</strong> sköter du här i Passlaget.
+                      SportAdmins register gäller för spelare med status <PlayerSourceChip synced />
+                      . Spelare med status <PlayerSourceChip synced={false} /> sköter du här i
+                      Passlaget.
                     </p>
                   </div>
                   {onEditFamily && (
@@ -286,9 +288,7 @@ export default function SportAdminPanel({
                               <strong>{child.name}</strong>
                             </td>
                             <td>
-                              <span className={`badge ${synced ? 'confirmed' : 'exempt'}`}>
-                                {synced ? 'synka' : 'manuell'}
-                              </span>
+                              <PlayerSourceChip synced={synced} />
                             </td>
                             <td>{child.active ? 'Aktiv' : 'Slutat'}</td>
                             <td>

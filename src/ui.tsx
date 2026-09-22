@@ -27,6 +27,13 @@ export function familyAdults(state: PortalState, family: Family | string | undef
   const id = typeof family === 'string' ? family : family?.id;
   return state.adults.filter((a) => a.active && a.familyIds.includes(id || ''));
 }
+export function PlayerSourceChip({ synced }: { synced: boolean }) {
+  return (
+    <span className={`player-source-chip ${synced ? 'synced' : 'manual'}`}>
+      {synced ? 'SYNKAD' : 'MANUELL'}
+    </span>
+  );
+}
 export function Status({ slot }: { slot: Slot }) {
   const text = !slot.familyId
     ? 'Obemannat'

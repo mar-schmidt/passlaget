@@ -748,6 +748,32 @@ main {
 .family-search input:focus {
   box-shadow: none;
 }
+.player-source-chip {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  flex-shrink: 0;
+  width: fit-content;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.player-source-chip.synced {
+  color: #345f42;
+  background: #e7eee2;
+  border-color: #cbdcc5;
+}
+.player-source-chip.manual {
+  color: #555b7a;
+  background: #eef0f6;
+  border-color: #d9ddeb;
+}
 .badge {
   display: inline-flex;
   align-items: center;
