@@ -604,14 +604,11 @@ function EventEditor({
   const [selectionState, setSelectionState] = useState<PortalState | null>(null);
   const state =
     selectionState && selectionState.version > initialState.version ? selectionState : initialState;
-  const [choicesLoading, setChoicesLoading] = useState(!isDemo);
   const [choicesError, setChoicesError] = useState('');
-  const [choicesReload, setChoicesReload] = useState(0);
   useEffect(() => {
     if (isDemo) return;
     let active = true;
     async function updateChoices() {
-      setChoicesLoading(true);
       try {
         const latest = await readPortal(true);
         if (!active) return;
@@ -621,11 +618,7 @@ function EventEditor({
         setChoicesError('');
       } catch {
         if (active)
-          setChoicesError(
-            'Familjelistan kunde inte uppdateras. Försök igen innan du byter familj.',
-          );
-      } finally {
-        if (active) setChoicesLoading(false);
+          setChoicesError('Familjelistan kunde inte uppdateras. Ett nytt försök görs automatiskt.');
       }
     }
     void updateChoices();
@@ -636,7 +629,7 @@ function EventEditor({
       active = false;
       window.clearInterval(timer);
     };
-  }, [initial.id, choicesReload]);
+  }, [initial.id]);
   const [event, setEvent] = useState(() => structuredClone(initial));
   const [saved, setSaved] = useState(() => JSON.stringify(initial));
   const [busy, setBusy] = useState('');
@@ -898,37 +891,35 @@ function EventEditor({
               lediga pass för att spara och fördela direkt.
             </p>
           )}
-          {(typeof activityId === 'number' || (activityId === undefined && event.attendance)) && (
-            <div className="manual-participants">
-              <h3>Manuella spelare som deltar</h3>
-              <p className="hint">
-                Markera de manuella spelare som ska vara med. Då kan deras familjer få pass på detta
-                evenemang.
-              </p>
-              {state.children
-                .filter((c) => c.active && c.source === 'manual')
-                .map((child) => (
-                  <label className="check-label" key={child.id}>
-                    <input
-                      type="checkbox"
-                      checked={event.manualParticipantIds?.includes(child.id) || false}
-                      onChange={(e) =>
-                        setEvent((old) => ({
-                          ...old,
-                          manualParticipantIds: e.target.checked
-                            ? [...(old.manualParticipantIds || []), child.id]
-                            : (old.manualParticipantIds || []).filter((id) => id !== child.id),
-                        }))
-                      }
-                    />
-                    {child.name}
-                  </label>
-                ))}
-              {!state.children.some((c) => c.active && c.source === 'manual') && (
-                <p className="hint">Inga aktiva manuella spelare finns i laget.</p>
-              )}
-            </div>
-          )}
+          {state.children.some((c) => c.active && c.source === 'manual') &&
+            (typeof activityId === 'number' || (activityId === undefined && event.attendance)) && (
+              <div className="manual-participants">
+                <h3>Manuella spelare som deltar</h3>
+                <p className="hint">
+                  Markera de manuella spelare som ska vara med. Då kan deras familjer få pass på
+                  detta evenemang.
+                </p>
+                {state.children
+                  .filter((c) => c.active && c.source === 'manual')
+                  .map((child) => (
+                    <label className="check-label" key={child.id}>
+                      <input
+                        type="checkbox"
+                        checked={event.manualParticipantIds?.includes(child.id) || false}
+                        onChange={(e) =>
+                          setEvent((old) => ({
+                            ...old,
+                            manualParticipantIds: e.target.checked
+                              ? [...(old.manualParticipantIds || []), child.id]
+                              : (old.manualParticipantIds || []).filter((id) => id !== child.id),
+                          }))
+                        }
+                      />
+                      {child.name}
+                    </label>
+                  ))}
+              </div>
+            )}
         </div>
         {tab === 'details' && (
           <div className="form-stack">
@@ -1042,29 +1033,17 @@ function EventEditor({
                 Fördela lediga pass
               </BusyButton>
             </div>
-            <div className="instructions">
-              <p>
-                Familjer som redan har ett bemanningspass visas men kan inte väljas. Gör deras
-                nuvarande plats ledig först om du vill flytta dem.
-              </p>
-              {!isDemo && (
-                <button
-                  type="button"
-                  className="text-button"
-                  disabled={choicesLoading}
-                  onClick={() => setChoicesReload((n) => n + 1)}
-                >
-                  {choicesLoading ? 'Uppdaterar familjelistan…' : 'Uppdatera familjelistan'}
-                </button>
-              )}
-              {attendanceUnavailable && (
-                <p role="status">
-                  Kallelsesvaren behöver uppdateras under SportAdmin innan fler familjer kan väljas.
-                  Redan tilldelade familjer ligger kvar.
-                </p>
-              )}
-              {choicesError && <p role="alert">{choicesError}</p>}
-            </div>
+            {(attendanceUnavailable || choicesError) && (
+              <div className="instructions">
+                {attendanceUnavailable && (
+                  <p role="status">
+                    Kallelsesvaren behöver uppdateras under SportAdmin innan fler familjer kan
+                    väljas. Redan tilldelade familjer ligger kvar.
+                  </p>
+                )}
+                {choicesError && <p role="alert">{choicesError}</p>}
+              </div>
+            )}
             {familyPassLimitErrors(state, details).map((message) => (
               <Notice key={message} error text={message} />
             ))}

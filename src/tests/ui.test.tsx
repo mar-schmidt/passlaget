@@ -1227,6 +1227,7 @@ describe('manual replacement after automatic planning', () => {
     );
   });
   it('refreshes the choices without losing unsaved draft edits', async () => {
+    const intervals = vi.spyOn(window, 'setInterval');
     const user = userEvent.setup();
     server.events[0].attendance = calling('2030-06-01T08:00:00Z');
     render(
@@ -1245,7 +1246,10 @@ describe('manual replacement after automatic planning', () => {
     await user.type(title, 'Min osparade rubrik');
     server.version++;
     server.events[0].attendance = calling('2030-06-01T12:00:00Z');
-    await user.click(screen.getByRole('button', { name: 'Uppdatera familjelistan' }));
+    await act(async () => {
+      const poll = intervals.mock.calls.find(([, delay]) => delay === 60_000)![0] as () => void;
+      poll();
+    });
     const select = screen.getByRole('combobox', { name: 'Familj för plats 1' });
     await waitFor(() =>
       expect(
@@ -1258,6 +1262,7 @@ describe('manual replacement after automatic planning', () => {
     expect(screen.queryByText(/Kallelsesvaren behöver uppdateras/)).toBeNull();
   });
   it('keeps unregistered and inactive children out of the replacement choices', async () => {
+    const intervals = vi.spyOn(window, 'setInterval');
     const user = userEvent.setup();
     server.events[0].attendance = {
       ...calling('2030-06-01T12:00:00Z'),
@@ -1277,13 +1282,10 @@ describe('manual replacement after automatic planning', () => {
     server.version++;
     server.events[0].attendance = calling('2030-06-01T12:00:00Z');
     server.children.find((c) => c.id === 'child-two')!.active = false;
-    await user.click(screen.getByRole('button', { name: 'Uppdatera familjelistan' }));
-    await waitFor(() =>
-      expect(
-        (screen.getByRole('button', { name: 'Uppdatera familjelistan' }) as HTMLButtonElement)
-          .disabled,
-      ).toBe(false),
-    );
+    await act(async () => {
+      const poll = intervals.mock.calls.find(([, delay]) => delay === 60_000)![0] as () => void;
+      poll();
+    });
     expect(
       within(select)
         .getAllByRole('option')
