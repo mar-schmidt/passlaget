@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { applyCommand, publicState } from './domain/logic';
 import { demoState } from './domain/demo';
-import type { PortalCommand, PortalState } from './domain/model';
+import type { AdminContact, PortalCommand, PortalState } from './domain/model';
 
 const url = import.meta.env.VITE_SUPABASE_URL?.trim();
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
@@ -66,6 +66,15 @@ export async function readPortal(admin = false): Promise<PortalState> {
   }
   const result = await api<{ state: PortalState }>({ action: 'read', admin });
   return fullShape(result.state);
+}
+export async function readAdminContacts(): Promise<AdminContact[]> {
+  if (isDemo)
+    return [
+      { name: 'Alex (demo)', email: 'alex@example.test' },
+      { name: 'Robin (demo)', email: 'robin@example.test' },
+    ];
+  const result = await api<{ contacts: AdminContact[] }>({ action: 'admin_contacts' });
+  return result.contacts;
 }
 export async function runCommand(
   command: PortalCommand,

@@ -33,6 +33,7 @@ import {
   timeRange,
 } from '../ui';
 import './parents-matchday.css';
+import ContactParents from './ContactParents';
 
 type Selection = { event: PortalEvent; shift: Shift; slot: Slot; booking?: boolean };
 interface Props {
@@ -66,6 +67,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
   const [request, setRequest] = useState<Selection | null>(null);
   const [calendar, setCalendar] = useState<CalendarEvent | null>(null);
   const [loadingCalendar, setLoadingCalendar] = useState('');
+  const [contactOpen, setContactOpen] = useState(false);
   const family = state.families.find((f) => f.id === familyId && f.active);
   const now = Date.now();
   const today = stockholmsDate(new Date(now).toISOString());
@@ -670,7 +672,14 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
         <HeartHandshake size={23} aria-hidden="true" />
         <div>
           <span>
-            <a href="mailto:karl.marcus.schmidt@gmail.com">Kontakta Lagförälder</a>
+            <button
+              type="button"
+              className="md-contact-trigger"
+              aria-haspopup="dialog"
+              onClick={() => setContactOpen(true)}
+            >
+              Kontakta Lagförälder
+            </button>
             {state.team.contactPhone && (
               <>
                 {' '}
@@ -683,6 +692,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
           </span>
         </div>
       </footer>
+      {contactOpen && <ContactParents onClose={() => setContactOpen(false)} />}
       {confirm && (
         <ConfirmModal
           item={confirm}

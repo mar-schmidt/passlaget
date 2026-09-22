@@ -74,6 +74,47 @@ const calls = (operation: string) =>
   mock.rpc.mock.calls.filter(([, args]) => args.p_op === operation);
 
 describe('Edge gateway authorization boundary', () => {
+  it('allows public contact selection but returns only name and email for the resolved team', async () => {
+    const previous = mock.rpc.getMockImplementation()!;
+    mock.rpc.mockImplementation(async (name, args) => {
+      if (name === 'portal_admin_contacts')
+        return {
+          data: [
+            {
+              name: 'Test Admin',
+              email: 'admin@example.test',
+              id: 'PRIVATE_ID',
+              phone: 'PRIVATE_PHONE',
+            },
+          ],
+          error: null,
+        };
+      return previous(name, args);
+    });
+    const response = await handle(
+      request({ action: 'admin_contacts', teamSlug: current.team.slug, teamId: 'other-team' }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      contacts: [{ name: 'Test Admin', email: 'admin@example.test' }],
+    });
+    expect(mock.rpc).toHaveBeenCalledWith('portal_admin_contacts', { p_team_id: current.team.id });
+    expect(mock.getUser).not.toHaveBeenCalled();
+    expect(calls('commit')).toHaveLength(0);
+  });
+  it('does not leak database details or fall back to an old contact when the lookup fails', async () => {
+    const previous = mock.rpc.getMockImplementation()!;
+    mock.rpc.mockImplementation(async (name, args) => {
+      if (name === 'portal_admin_contacts')
+        return { data: null, error: { message: 'PRIVATE_DB_ERROR' } };
+      return previous(name, args);
+    });
+    const response = await handle(
+      request({ action: 'admin_contacts', teamSlug: current.team.slug }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toContain('PRIVATE_');
+  });
   it('rejects unknown and inherited object names before accessing the database', async () => {
     for (const action of ['unknown', 'toString', '__proto__'])
       expect((await handle(request({ action }))).status).toBe(400);

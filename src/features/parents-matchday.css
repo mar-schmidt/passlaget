@@ -664,10 +664,72 @@
   color: var(--md-muted);
   font-size: 14px;
 }
-.matchday-page .md-help a {
+.matchday-page .md-help a,
+.matchday-page .md-contact-trigger {
   display: inline-flex;
   align-items: center;
   min-height: 44px;
+}
+.matchday-page .md-contact-trigger {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.matchday-page .md-contact-body > p {
+  font-size: 14px;
+  color: var(--md-muted);
+  line-height: 1.6;
+  margin: 0 0 18px;
+}
+.md-contact-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.md-contact-list a {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 16px;
+  min-height: 72px;
+  border: 1px solid var(--md-line);
+  border-radius: 10px;
+  text-decoration: none;
+  color: var(--md-ink);
+  background: #fff;
+}
+.md-contact-list a:hover {
+  border-color: var(--md-accent);
+  background: #f3f6ee;
+}
+.md-contact-list a > svg {
+  flex-shrink: 0;
+  color: var(--md-accent);
+}
+.md-contact-list a > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.md-contact-list strong,
+.md-contact-list small {
+  display: block;
+}
+.md-contact-list strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+.md-contact-list small {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--md-muted);
 }
 .matchday-page .md-help > p {
   font:

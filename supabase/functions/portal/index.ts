@@ -301,6 +301,7 @@ export async function handle(request: Request): Promise<Response> {
       return response({ updated });
     }
     const globalLimits: Record<string, [number, number]> = {
+      admin_contacts: [120, 60],
       sportadmin: [60, 60],
       read: [600, 60],
       command: [180, 60],
@@ -373,6 +374,15 @@ export async function handle(request: Request): Promise<Response> {
       return response({ ok: true });
     }
     const state = await loadTeam(body.teamSlug);
+    if (action === 'admin_contacts') {
+      const { data, error } = await db.rpc('portal_admin_contacts', { p_team_id: state.team.id });
+      if (error || !Array.isArray(data))
+        throw new HttpError(503, 'Kontaktuppgifterna kunde inte hämtas. Försök igen.');
+      // Deliberately project only these two public contact fields; never return Auth records.
+      return response({
+        contacts: data.map(({ name, email }: { name: string; email: string }) => ({ name, email })),
+      });
+    }
     if (action === 'sportadmin') {
       await requireAdmin(request, state);
       await rateLimit(
@@ -430,7 +440,9 @@ export async function handle(request: Request): Promise<Response> {
           sportRpc,
           loadTeam,
         );
-        return response({ state: result!.state });
+        if (!result || !('state' in result))
+          throw new HttpError(503, 'Evenemanget kunde inte sparas. Försök igen.');
+        return response({ state: result.state });
       }
       const next = applyCommand(state, command, isPublic ? 'public' : 'admin');
       if (next.team.id !== state.team.id || next.team.slug !== state.team.slug)

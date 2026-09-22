@@ -4,7 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 const { PGlite } = await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const db = new PGlite();
 await db.exec(
-  `create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text);`,
+  `create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,deleted_at timestamptz,banned_until timestamptz);`,
 );
 const migrationFiles = (await readdir(new URL('../migrations/', import.meta.url)))
   .filter((x) => x.endsWith('.sql'))
@@ -48,6 +48,10 @@ const rpc = async (op, args = {}) =>
   ).rows[0].result;
 for (const role of ['anon', 'authenticated']) {
   await db.exec(`set role ${role}`);
+  await assert.rejects(
+    () => db.query("select * from public.portal_admin_contacts('t1')"),
+    /permission denied/,
+  );
   await assert.rejects(() => rpc('read', { slug: 'team-one' }), /permission denied/);
   await assert.rejects(
     () => db.query('select state from portal_private.teams'),
@@ -55,6 +59,54 @@ for (const role of ['anon', 'authenticated']) {
   );
   await db.exec('reset role');
 }
+// Contact lists follow current team membership and never include other users or teams.
+await db.exec(`
+  insert into auth.users(id,email) values
+    ('a2cc7337-20ed-4812-a2c8-81a841f134ab','other-team@example.test'),
+    ('a3cc7337-20ed-4812-a2c8-81a841f134ab','not-admin@example.test'),
+    ('a4cc7337-20ed-4812-a2c8-81a841f134ab','disabled@example.test');
+  update auth.users set banned_until=now()+interval '1 day' where email='disabled@example.test';
+  insert into portal_private.admin_memberships(team_id,user_id) values
+    ('t2','a2cc7337-20ed-4812-a2c8-81a841f134ab'),
+    ('t1','a4cc7337-20ed-4812-a2c8-81a841f134ab');
+`);
+const contacts = async (teamId) =>
+  (await db.query('select * from public.portal_admin_contacts($1)', [teamId])).rows;
+await db.exec('set role service_role');
+assert.deepEqual(await contacts('t1'), [
+  { name: 'admin@example.test', email: 'admin@example.test' },
+]);
+assert.deepEqual(await contacts('unknown'), []);
+await db.exec('reset role');
+await db.query(
+  "update portal_private.teams set state=jsonb_set(state,'{adults}',$1::jsonb) where id='t1'",
+  [
+    JSON.stringify([
+      {
+        id: 'parent',
+        active: true,
+        name: 'Testansvarig',
+        email: 'ADMIN@example.test',
+        phone: 'PRIVATE_PHONE',
+      },
+    ]),
+  ],
+);
+await db.exec('set role service_role');
+assert.deepEqual(await contacts('t1'), [{ name: 'Testansvarig', email: 'admin@example.test' }]);
+await db.query('delete from portal_private.admin_memberships where team_id=$1 and user_id=$2', [
+  't1',
+  admin,
+]);
+assert.deepEqual(await contacts('t1'), []);
+await db.query('insert into portal_private.admin_memberships(team_id,user_id) values($1,$2)', [
+  't1',
+  admin,
+]);
+await db.query(
+  "update portal_private.teams set state=jsonb_set(state,'{adults}','[]') where id='t1'",
+);
+await db.exec('reset role');
 // Integration RPC and raw tokens are unavailable to browsers, even signed-in admins.
 for (const role of ['anon', 'authenticated']) {
   await db.exec(`set role ${role}`);

@@ -1,3 +1,8 @@
+/** Public contact details of a current administrator for this team. */
+export interface AdminContact {
+  name: string;
+  email: string;
+}
 export interface Team {
   id: string;
   slug: string;
