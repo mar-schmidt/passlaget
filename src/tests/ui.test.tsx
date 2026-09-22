@@ -606,7 +606,7 @@ describe('administration across public actions', () => {
     render(<App />);
     await screen.findByRole('heading', { name: 'Välj ditt barn för att komma vidare' });
     await user.click(screen.getByRole('button', { name: 'Administration' }));
-    await screen.findByRole('heading', { name: 'En insats för laget.' });
+    await screen.findByRole('heading', { name: 'Översikt' });
     await waitFor(() =>
       expect(screen.getByRole('heading', { name: 'Privat planeringsutkast' })).toBeTruthy(),
     );
@@ -633,7 +633,7 @@ describe('administration across public actions', () => {
     await user.click(screen.getByRole('button', { name: 'Administration' }));
     await user.click(screen.getByRole('button', { name: 'Evenemang' }));
     expect(screen.getByRole('heading', { name: 'Privat planeringsutkast' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Rättvis fördelning' }));
+    await user.click(screen.getByRole('button', { name: 'Topplista' }));
     const historicalStat = screen.getByText('Genomförda pass').closest('.stat-card')!;
     expect(within(historicalStat as HTMLElement).getByText('1')).toBeTruthy();
   });
@@ -793,7 +793,9 @@ describe('parent contact emails and individual reminders', () => {
     expect(
       (screen.getByRole('button', { name: 'Påminn via mejl' }) as HTMLButtonElement).disabled,
     ).toBe(true);
-    expect(screen.getByText('Mejladress saknas – lägg till under Spelare & föräldrar.')).toBeTruthy();
+    expect(
+      screen.getByText('Mejladress saknas – lägg till under Spelare & föräldrar.'),
+    ).toBeTruthy();
   });
 });
 

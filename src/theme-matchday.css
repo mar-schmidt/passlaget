@@ -92,15 +92,15 @@ summary:focus-visible {
 .primary:hover:not(:disabled) {
   background: var(--accent-hover);
 }
-.primary.add-player-button {
+.primary.green {
   background: var(--green);
   border-color: var(--green);
 }
-.primary.add-player-button:hover:not(:disabled) {
+.primary.green:hover:not(:disabled) {
   background: #31503d;
   border-color: #31503d;
 }
-.add-player-button:focus-visible {
+.primary.green:focus-visible {
   outline-color: var(--green);
 }
 .secondary {

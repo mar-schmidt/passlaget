@@ -47,7 +47,7 @@ Spara godkända ändringar i en separat **`.local/import/approved.json`** så at
 1. Logga in som administratör och öppna importfunktionen i portalen. Välj `approved.json` från den egna datorn. Filen ska inte laddas upp som offentlig webbfil.
 2. Granska förhandsvisade antal, familjekopplingar och kontaktuppgifter. Nya historikposter börjar som okontrollerade och ska inte påverka fördelningen ännu.
 3. Bekräfta importen. Uppgifter kopplas till det valda laget. Importen aktiverar inga mejlprenumerationer, skickar inga påminnelser och publicerar inga evenemang.
-4. Öppna **Rättvis fördelning**, välj familjen och använd **Bekräfta genomförande** för varje historiskt pass som har stämts av. Låt osäkra poster vara okontrollerade. Läs särskilt igenom familjer med två barn, två olika vuxna och ledarundantag. Bekräfta att endast godkända genomförda pass påverkar saldot.
+4. Öppna **Topplista**, välj familjen och använd **Bekräfta genomförande** för varje historiskt pass som har stämts av. Låt osäkra poster vara okontrollerade. Läs särskilt igenom familjer med två barn, två olika vuxna och ledarundantag. Bekräfta att endast godkända genomförda pass påverkar saldot.
 5. Gör om importen med samma fil i en testmiljö: antalen och saldona ska vara oförändrade. Om något redan har redigerats i portalen bör en ny import först jämföras mot de aktuella uppgifterna så att äldre kontaktuppgifter inte återinförs.
 
 Spara privat backup före större registerimport. Behåll original och granskning på en lämplig privat plats. Skriptet läser referens-PDF:en utan att ändra den.

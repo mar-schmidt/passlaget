@@ -78,7 +78,7 @@ Förbered och granska importen enligt [IMPORT.md](IMPORT.md). Riktiga personuppg
 
 ## Backup och återställning
 
-Ta en JSON-export via **Rättvis fördelning → Säkerhetskopia** före större registerändringar och efter genomförda evenemang. Den innehåller portalens register och historik, men **inte** Auth-användare, prenumerationer och mejljournal. För fullständig backup behövs även en privat databasexport.
+Ta en JSON-export via **Topplista → Säkerhetskopia** före större registerändringar och efter genomförda evenemang. Den innehåller portalens register och historik, men **inte** Auth-användare, prenumerationer och mejljournal. För fullständig backup behövs även en privat databasexport.
 
 Använd Supabases anslutningssträng från Connect och en lokal `pg_dump` med samma huvudversion som databasen. Ange lösenord med lokal säker inmatning eller `.pgpass` med rättigheter `0600`; lägg det aldrig i en sparad kommandofil. Förvara exporten utanför repositoryt.
 

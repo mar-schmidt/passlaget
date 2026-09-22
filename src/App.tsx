@@ -44,7 +44,7 @@ const adminPages = [
   { id: 'evenemang', name: 'Evenemang', icon: CalendarDays },
   { id: 'familjer', name: 'Spelare & föräldrar', icon: Users },
   { id: 'sportadmin', name: 'SportAdmin', icon: Users },
-  { id: 'fordelning', name: 'Rättvis fördelning', icon: ChartNoAxesCombined },
+  { id: 'fordelning', name: 'Topplista', icon: ChartNoAxesCombined },
   { id: 'paminnelser', name: mailEnabled ? 'Mejl & drift' : 'Kontakt & drift', icon: Mail },
 ] as const;
 export default function App() {

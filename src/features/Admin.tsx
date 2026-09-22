@@ -168,15 +168,9 @@ export default function Admin({
       tell((e as Error).message, true);
     }
   }
-  const heading = (
-    eyebrow: string,
-    title: string,
-    description: string,
-    action?: React.ReactNode,
-  ) => (
+  const heading = (title: string, description: string, action?: React.ReactNode) => (
     <div className="page-heading">
       <div>
-        <p className="eyebrow">{eyebrow}</p>
         <h1>{title}</h1>
         <p className="muted">{description}</p>
       </div>
@@ -268,10 +262,9 @@ export default function Admin({
       {page === 'oversikt' && (
         <>
           {heading(
-            'LAGFÖRÄLDERNS ÖVERSIKT',
-            'En insats för laget.',
-            'Här håller du ihop bemanningen – från första planeringen till sista passet.',
-            <button className="button primary" onClick={() => setEditing(newEvent(state))}>
+            'Översikt',
+            'Här ser du kommande evenemang, bemanning och förfrågningar från familjer.',
+            <button className="button primary green" onClick={() => setEditing(newEvent(state))}>
               <Plus size={18} />
               Nytt evenemang
             </button>,
@@ -467,10 +460,9 @@ export default function Admin({
       {page === 'evenemang' && (
         <>
           {heading(
-            'PLANERA TILLSAMMANS',
             'Evenemang',
-            'Cuper, caféveckor och allt det andra som får föreningen att fungera.',
-            <button className="button primary" onClick={() => setEditing(newEvent(state))}>
+            'Här planerar du lagets evenemang, uppdrag och bemanning.',
+            <button className="button primary green" onClick={() => setEditing(newEvent(state))}>
               <Plus size={18} />
               Nytt evenemang
             </button>,
@@ -1696,7 +1688,7 @@ function Families({
           <p className="muted">Här hittar du lagets spelare och deras föräldrar.</p>
         </div>
         <button
-          className="button primary add-player-button"
+          className="button primary green"
           onClick={() =>
             setEditing({ id: uid(), label: '', active: true, exempt: false, unavailable: [] })
           }
@@ -2248,12 +2240,13 @@ function Fairness({ state, mutate, tell }: { state: PortalState; mutate: Mutate;
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">SAMMA ANSVAR, ÖVER TID</p>
-          <h1>Rättvis fördelning</h1>
-          <p className="muted">Ett pass är ett pass. Hela familjens insats räknas tillsammans.</p>
+          <h1>Topplista</h1>
+          <p className="muted">
+            Här ser du familjernas genomförda och reserverade pass, sorterade efter totalt antal.
+          </p>
         </div>
         <div className="button-row">
-          <button className="button secondary" onClick={() => setImporting(true)}>
+          <button className="button primary green" onClick={() => setImporting(true)}>
             <FileUp size={17} />
             Importera
           </button>
@@ -2789,15 +2782,14 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
     <>
       <div className="page-heading">
         <div>
-          <p className="eyebrow">KONTAKT & DRIFT</p>
-          <h1>{activeMail ? 'Håll familjerna uppdaterade' : 'Lagets kontaktuppgifter'}</h1>
+          <h1>{mailEnabled ? 'Mejl & drift' : 'Kontakt & drift'}</h1>
           <p className="muted">
             {activeMail
-              ? 'Familjer väljer själva att få mejl. Du ser om utskicken fungerar.'
-              : 'Här anger du vem familjerna kan kontakta.'}
+              ? 'Här hanterar du kontaktuppgifter, mejlpåminnelser och status för lagets utskick.'
+              : 'Här hanterar du lagets kontaktuppgifter och ser status för mejlutskick.'}
           </p>
         </div>
-        <button className="button secondary" onClick={load}>
+        <button className="button primary green" onClick={load}>
           Uppdatera status
         </button>
       </div>
@@ -2945,7 +2937,7 @@ function Reminders({ state, mutate, tell }: { state: PortalState; mutate: Mutate
                 ))}
               </fieldset>
             )}
-            <BusyButton busy={busy} type="submit" className="button primary">
+            <BusyButton busy={busy} type="submit" className="button primary green">
               Spara inställningar
             </BusyButton>
           </form>
