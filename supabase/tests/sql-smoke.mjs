@@ -4,7 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 const { PGlite } = await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const db = new PGlite();
 await db.exec(
-  `create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,deleted_at timestamptz,banned_until timestamptz);`,
+  `create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,deleted_at timestamptz,banned_until timestamptz,raw_user_meta_data jsonb default '{}');`,
 );
 const migrationFiles = (await readdir(new URL('../migrations/', import.meta.url)))
   .filter((x) => x.endsWith('.sql'))
@@ -93,7 +93,37 @@ await db.query(
   ],
 );
 await db.exec('set role service_role');
-assert.deepEqual(await contacts('t1'), [{ name: 'Testansvarig', email: 'admin@example.test' }]);
+// A parent's registry name must not override the account's Display name.
+assert.deepEqual(await contacts('t1'), [
+  { name: 'admin@example.test', email: 'admin@example.test' },
+]);
+await db.exec('reset role');
+await db.query('update auth.users set raw_user_meta_data=$1 where id=$2', [
+  JSON.stringify({
+    name: 'Visningsnamn',
+    full_name: 'Äldre namn',
+    private_note: 'PRIVATE_METADATA',
+  }),
+  admin,
+]);
+await db.exec('set role service_role');
+assert.deepEqual(await contacts('t1'), [{ name: 'Visningsnamn', email: 'admin@example.test' }]);
+await db.exec('reset role');
+await db.query(
+  "update auth.users set raw_user_meta_data=jsonb_set(raw_user_meta_data,'{name}',to_jsonb($1::text)) where id=$2",
+  ['Uppdaterat namn', admin],
+);
+await db.exec('set role service_role');
+assert.deepEqual(await contacts('t1'), [{ name: 'Uppdaterat namn', email: 'admin@example.test' }]);
+await db.exec('reset role');
+await db.query('update auth.users set raw_user_meta_data=$1 where id=$2', [
+  JSON.stringify({ name: ' ', display_name: '' }),
+  admin,
+]);
+await db.exec('set role service_role');
+assert.deepEqual(await contacts('t1'), [
+  { name: 'admin@example.test', email: 'admin@example.test' },
+]);
 await db.query('delete from portal_private.admin_memberships where team_id=$1 and user_id=$2', [
   't1',
   admin,

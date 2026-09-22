@@ -369,7 +369,7 @@ test(
     const db = new PGlite();
     t.after(() => db.close());
     await db.exec(
-      'create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,deleted_at timestamptz,banned_until timestamptz);',
+      "create role anon; create role authenticated; create role service_role bypassrls; create schema auth; create table auth.users(id uuid primary key,email text,deleted_at timestamptz,banned_until timestamptz,raw_user_meta_data jsonb default '{}');",
     );
     const migrations = new URL('../supabase/migrations/', import.meta.url);
     for (const file of readdirSync(migrations)
