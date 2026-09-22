@@ -128,12 +128,16 @@ export function validateBackup(backup) {
   children.forEach((row) => {
     text(row.name, 'child.name');
     bool(row.active, 'child.active');
+    if (row.source !== undefined && !['manual', 'sportadmin'].includes(row.source))
+      fail('child.source: invalid source.');
     if (!familyIds.has(row.familyId)) fail('child.familyId: family is missing.');
   });
   adults.forEach((row) => {
     text(row.name, 'adult.name');
     phone(row.phone, 'adult.phone');
     bool(row.active, 'adult.active');
+    if (row.source !== undefined && !['manual', 'sportadmin'].includes(row.source))
+      fail('adult.source: invalid source.');
     const linked = list(row.familyIds, 'adult.familyIds', 30);
     if (
       !linked.length ||
@@ -218,6 +222,11 @@ export function validateBackup(backup) {
     });
   };
   events.forEach((row) => {
+    if (row.manualParticipantIds !== undefined)
+      list(row.manualParticipantIds, 'event.manualParticipantIds', 1000).forEach((id) => {
+        if (!children.some((c) => c.id === id && c.source === 'manual'))
+          fail('event.manualParticipantIds: unknown manual player.');
+      });
     bool(row.cancelled, 'event.cancelled');
     integer(row.publication, 'event.publication');
     instant(row.updatedAt, 'event.updatedAt');

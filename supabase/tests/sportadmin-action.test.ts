@@ -203,3 +203,61 @@ test('concurrent draft changes reject the combined save instead of rebasing stal
   ).rejects.toThrow('conflict');
   expect(f.calls.filter((x) => x === 'finish')).toHaveLength(1);
 });
+
+test('inventory and private mapping commit atomically; manual selection survives optimistic retry', async () => {
+  const f = fixture();
+  f.state.children.forEach((c) => {
+    c.source = 'manual';
+  });
+  const child = f.state.children[0];
+  delete child.source;
+  f.data.mapping[child.id] = 1;
+  vi.spyOn(SportAdmin.prototype, 'roster').mockResolvedValue({
+    clubId: 1,
+    groupId: 2,
+    groupName: 'P2018',
+    checkedAt: new Date().toISOString(),
+    players: [{ id: 1, name: 'Updated Player', active: false, guardians: [] }],
+  });
+  f.conflict();
+  const result = await sportadminAction({ operation: 'inventory_sync' }, f.state, f.rpc, f.load);
+  expect(result!.integration.inventoryEnabled).toBe(true);
+  expect(result!.integration.inventory?.departed).toBe(1);
+  expect(result!.state.children[0]).toMatchObject({
+    name: 'Updated Player',
+    active: false,
+    source: 'sportadmin',
+  });
+  expect(result!.state.children[2].source).toBe('manual');
+  expect(f.calls.filter((c) => c === 'finish')).toHaveLength(2);
+});
+test('failed complete roster or contact read preserves all players and contacts and reports the error', async () => {
+  const f = fixture();
+  const before = structuredClone(f.state);
+  vi.spyOn(SportAdmin.prototype, 'roster').mockRejectedValue(new SportAdminError('upstream'));
+  const result = await sportadminAction({ operation: 'inventory_sync' }, f.state, f.rpc, f.load);
+  expect(result!.integration.rosterStatus).toBe('error');
+  expect(result!.integration.inventoryEnabled).toBe(false);
+  expect(result!.state.children).toEqual(before.children);
+  expect(result!.state.adults).toEqual(before.adults);
+  expect(result!.state.history).toEqual(before.history);
+});
+test('event and first manual participant can be saved together with an empty calling list', async () => {
+  const f = fixture();
+  const child = f.state.children[0];
+  child.source = 'manual';
+  f.data.activities = [activity];
+  vi.spyOn(SportAdmin.prototype, 'participants').mockResolvedValue([]);
+  const event = newEvent(f.state);
+  event.manualParticipantIds = [child.id];
+  event.draft.shifts[0].slots[0].familyId = child.familyId;
+  const result = await sportadminAction(
+    { operation: 'save_event', event, activityId: 7, expectedVersion: f.state.version },
+    f.state,
+    f.rpc,
+    f.load,
+  );
+  expect(
+    result!.state.events.find((e) => e.id === event.id)?.draft.shifts[0].slots[0].familyId,
+  ).toBe(child.familyId);
+});

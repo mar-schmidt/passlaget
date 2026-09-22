@@ -978,3 +978,64 @@ it('keeps unsaved event details and activity choice if the combined save fails',
   );
   expect((screen.getByLabelText('Koppla till SportAdmin') as HTMLSelectElement).value).toBe('7');
 });
+
+it('admin marks a manual player as attending in the event editor and saves it with the link', async () => {
+  server.children[0].source = 'manual';
+  server.children[1].source = 'sportadmin';
+  client.api.mockResolvedValue({
+    integration: {
+      connected: true,
+      profiles: [],
+      players: [],
+      mapping: {},
+      links: {},
+      activities: [{ id: 7, title: 'Testmatch', startsAt: '2030-06-15T09:00:00Z' }],
+    },
+  });
+  const mutate = vi.fn(async (command: PortalCommand) => applyCommand(server, command, 'admin'));
+  const user = userEvent.setup();
+  render(
+    <Admin state={server} page="oversikt" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Nytt evenemang' }));
+  await user.type(screen.getByLabelText('Evenemangets namn'), 'Manuellt deltagande');
+  await screen.findByRole('option', { name: /Testmatch/ });
+  await user.selectOptions(screen.getByLabelText('Koppla till SportAdmin'), '7');
+  expect(screen.queryByRole('checkbox', { name: server.children[1].name })).toBeNull();
+  await user.click(screen.getByRole('checkbox', { name: server.children[0].name }));
+  await user.click(screen.getByRole('button', { name: 'Spara utkast' }));
+  await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+  expect(mutate.mock.calls[0][0]).toMatchObject({
+    type: 'save_event',
+    sportadminActivityId: 7,
+    event: { manualParticipantIds: ['child-one'] },
+  });
+});
+
+it('confirmation for a synced parent uses register contacts without asking them to retype private email', async () => {
+  server.adults[0].source = 'sportadmin';
+  server.adults[0].email = 'synced@example.test';
+  const mutate = vi.fn(async (command: PortalCommand) => {
+    server = applyCommand(server, command, 'public');
+    return server;
+  });
+  const user = userEvent.setup();
+  render(
+    <Parents
+      state={projected(server)}
+      familyId="family-one"
+      setFamilyId={vi.fn()}
+      mutate={mutate}
+      tell={vi.fn()}
+    />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Bekräfta passet' }));
+  const dialog = screen.getByRole('dialog', { name: 'Bekräfta familjens pass' });
+  expect(within(dialog).queryByRole('textbox', { name: 'Mejladress' })).toBeNull();
+  expect(within(dialog).getByText(/hämtas från SportAdmin när du bekräftar/)).toBeTruthy();
+  expect(screen.queryByText('synced@example.test')).toBeNull();
+  await user.click(within(dialog).getByRole('checkbox'));
+  await user.click(within(dialog).getByRole('button', { name: 'Bekräfta passet' }));
+  await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
+  expect(server.adults[0].email).toBe('synced@example.test');
+});

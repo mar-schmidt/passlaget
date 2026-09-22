@@ -165,14 +165,16 @@ function mergeAdults(state: PortalState, adults: Adult[]): Adult[] {
   return upsert(
     state.adults,
     adults.map((adult) =>
-      adult.email === undefined
-        ? {
-            ...adult,
-            ...(state.adults.find((a) => a.id === adult.id)?.email !== undefined
-              ? { email: state.adults.find((a) => a.id === adult.id)!.email }
-              : {}),
-          }
-        : adult,
+      state.adults.find((a) => a.id === adult.id)?.source === 'sportadmin'
+        ? { ...state.adults.find((a) => a.id === adult.id)!, familyIds: adult.familyIds }
+        : adult.email === undefined
+          ? {
+              ...adult,
+              ...(state.adults.find((a) => a.id === adult.id)?.email !== undefined
+                ? { email: state.adults.find((a) => a.id === adult.id)!.email }
+                : {}),
+            }
+          : adult,
     ),
   );
 }
@@ -201,6 +203,7 @@ function parseChild(value: unknown): Child {
     name: text(item.name, 'Barnets namn'),
     familyId: id(item.familyId, 'Familj'),
     active: boolean(item.active, 'Aktivt barn'),
+    source: 'manual',
   };
 }
 function parseAdult(value: unknown): Adult {
@@ -216,6 +219,7 @@ function parseAdult(value: unknown): Adult {
     ...(item.email === undefined ? {} : { email: emailAddress(item.email) }),
     familyIds,
     active: boolean(item.active, 'Aktiv vuxen'),
+    source: 'manual',
   };
 }
 function parseRole(value: unknown): Role {
@@ -449,6 +453,8 @@ export function attendanceEligible(
 ): boolean {
   const a = event.attendance;
   if (!a) return true;
+  if (manualAttendanceEligible(state, event, familyId) || a.manualFamilyIds?.includes(familyId))
+    return true;
   const age = now - Date.parse(a.checkedAt);
   if (a.error || !Number.isFinite(age) || age < -60_000 || age > 2 * 3600_000) return false;
   return a.eligibleChildIds
@@ -457,15 +463,28 @@ export function attendanceEligible(
       )
     : !!a.eligibleFamilyIds?.includes(familyId);
 }
+export function manualAttendanceEligible(
+  state: Pick<PortalState, 'children'>,
+  event: PortalEvent,
+  familyId: string,
+): boolean {
+  return state.children.some(
+    (c) =>
+      c.active &&
+      c.source === 'manual' &&
+      c.familyId === familyId &&
+      event.manualParticipantIds?.includes(c.id),
+  );
+}
 export function attendanceWarnings(state: PortalState, event: PortalEvent): string[] {
-  if (!event.attendance) return [];
   const warnings = new Set<string>();
   for (const shift of [...event.draft.shifts, ...(event.published?.shifts || [])])
     for (const slot of shift.slots)
       if (
         slot.familyId &&
         ['pending', 'confirmed'].includes(slot.status) &&
-        !attendanceEligible(state, event, slot.familyId)
+        (!state.children.some((c) => c.familyId === slot.familyId && c.active) ||
+          !attendanceEligible(state, event, slot.familyId))
       )
         warnings.add(state.families.find((f) => f.id === slot.familyId)?.label || slot.familyId);
   return [...warnings];
@@ -750,6 +769,7 @@ export function publicState(state: PortalState): PublicState {
         phone: publicPhones.get(adult.id) ?? '',
         familyIds: adult.familyIds.filter((family) => visible.has(family)),
         active: adult.active,
+        ...(adult.source === 'sportadmin' ? { source: 'sportadmin' as const } : {}),
       })),
     roles: [...publicRoles.values()],
     events: state.events
@@ -804,6 +824,9 @@ export function publicState(state: PortalState): PublicState {
                   eligibleFamilyIds: families
                     .filter((f) => attendanceEligible(state, event, f.id))
                     .map((f) => f.id),
+                  manualFamilyIds: families
+                    .filter((f) => manualAttendanceEligible(state, event, f.id))
+                    .map((f) => f.id),
                 },
               }
             : {}),
@@ -823,7 +846,8 @@ function canonicalAdult(state: PortalState, slot: Slot, previous?: Slot): void {
   const adult = state.adults.find((adult) => adult.id === slot.adultId);
   if (!adult || !adult.familyIds.includes(slot.familyId ?? ''))
     failure('Den valda vuxna tillhör inte familjen.');
-  if (!adult.active) failure('Den valda vuxna är inte aktiv.');
+  if (!adult.active && (previous?.adultId !== slot.adultId || previous?.familyId !== slot.familyId))
+    failure('Den valda vuxna är inte aktiv.');
   if (previous?.adultId === slot.adultId) {
     // Keep the accepted contact snapshot on ordinary edits. An explicit re-selection
     // may supply the current register values, while omitted fields retain the snapshot.
@@ -970,7 +994,15 @@ export function applyCommand(
       )
         failure('Barn och vuxna måste kopplas till den redigerade familjen.');
       next.families = upsert(next.families, [family]);
-      next.children = upsert(next.children, children);
+      next.children = upsert(
+        next.children,
+        children.map((child) => {
+          const old = next.children.find((c) => c.id === child.id);
+          return old?.source === 'sportadmin' ? { ...old, familyId: child.familyId } : child;
+        }),
+      );
+      if (next.children.some((c) => c.familyId === family.id && c.source === 'sportadmin'))
+        family.active = next.children.some((c) => c.familyId === family.id && c.active);
       next.adults = mergeAdults(next, adults);
       validateRelations(next);
       summary = `Familjen ${family.label} sparades.`;
@@ -994,6 +1026,23 @@ export function applyCommand(
       const eventId = id(raw.id, 'Evenemang');
       const draft = parseDetails(raw.draft);
       const existing = next.events.find((event) => event.id === eventId);
+      const manualParticipantIds =
+        raw.manualParticipantIds === undefined
+          ? existing?.manualParticipantIds
+          : [
+              ...new Set(
+                list(raw.manualParticipantIds, 'Manuella deltagare', 1000).map((v) =>
+                  id(v, 'Spelare'),
+                ),
+              ),
+            ];
+      if (
+        manualParticipantIds?.some(
+          (id) => !next.children.some((c) => c.id === id && c.source === 'manual'),
+        )
+      )
+        failure('Deltagande kan bara markeras manuellt för spelare med status manuell.');
+      const eligibilityEvent = existing ? { ...existing, manualParticipantIds } : undefined;
       if (existing?.cancelled)
         failure(
           'Ett inställt evenemang kan inte redigeras. Kopiera det för ett nytt tillfälle.',
@@ -1002,12 +1051,18 @@ export function applyCommand(
       for (const shift of draft.shifts)
         for (const slot of shift.slots) {
           const prior = findSlot(existing?.draft, slot.id);
+          if (
+            slot.familyId &&
+            slot.familyId !== prior?.slot.familyId &&
+            !next.families.some((f) => f.id === slot.familyId && eligibleFamily(next, f))
+          )
+            failure('Familjen har inget aktivt barn och kan inte få nya pass.', 409);
           canonicalAdult(next, slot, prior?.slot);
           if (
             slot.familyId &&
             slot.familyId !== prior?.slot.familyId &&
             existing &&
-            !attendanceEligible(next, existing, slot.familyId, timestamp(at))
+            !attendanceEligible(next, eligibilityEvent!, slot.familyId, timestamp(at))
           )
             failure(
               'Familjen har inget aktivt barn med ett aktuellt ja-svar i SportAdmin. Uppdatera kallelsesvaren.',
@@ -1045,8 +1100,15 @@ export function applyCommand(
       )
         failure('Ett genomfört pass kan inte tas bort ur schemat.', 409);
       const event: PortalEvent = existing
-        ? { ...existing, draft, updatedAt: at }
-        : { id: eventId, draft, publication: 0, cancelled: false, updatedAt: at };
+        ? { ...existing, draft, manualParticipantIds, updatedAt: at }
+        : {
+            id: eventId,
+            draft,
+            manualParticipantIds,
+            publication: 0,
+            cancelled: false,
+            updatedAt: at,
+          };
       next.events = upsert(next.events, [event]);
       const structuralErrors = validateEvent(next, eventId).filter((error) =>
         /finns inte i registret|tillhör inte|familj före|familj finns inte|samma ID|annat lags/.test(
@@ -1258,9 +1320,14 @@ export function applyCommand(
       }
       const { event, shift, slot } = checkPublishedSlot(next, input);
       let adultId = optionalId(input.adultId, 'Vuxen');
-      const adultName = text(input.adultName, 'Ansvarig vuxen');
-      const adultPhone = phone(input.adultPhone, true);
-      const adultEmail = emailAddress(input.adultEmail, true);
+      const synced = next.adults.find((a) => a.id === adultId && a.source === 'sportadmin');
+      if (synced && (!synced.email || !synced.phone))
+        failure(
+          'Mejladress eller telefonnummer saknas i SportAdmin för den valda vuxna. Uppdatera uppgifterna i SportAdmin och be lagföräldern synka.',
+        );
+      const adultName = text(synced?.name ?? input.adultName, 'Ansvarig vuxen');
+      const adultPhone = phone(synced?.phone ?? input.adultPhone, true);
+      const adultEmail = emailAddress(synced?.email ?? input.adultEmail, true);
       if (adultId) {
         const adult = next.adults.find((adult) => adult.id === adultId);
         if (!adult || !adult.active || !adult.familyIds.includes(slot.familyId!))
@@ -1281,8 +1348,8 @@ export function applyCommand(
         )?.id;
       const contact = next.adults.find((adult) => adult.id === adultId);
       const emailChanged = contact?.email !== adultEmail;
-      if (contact) contact.email = adultEmail;
-      else {
+      if (contact && contact.source !== 'sportadmin') contact.email = adultEmail;
+      else if (!contact) {
         adultId = `adult:confirmation:${next.version + 1}:${slot.id}`;
         next.adults.push({
           id: adultId,
@@ -1291,6 +1358,7 @@ export function applyCommand(
           email: adultEmail,
           familyIds: [slot.familyId!],
           active: true,
+          source: 'manual',
         });
       }
       if (
@@ -1447,7 +1515,13 @@ export function applyCommand(
         'Historik',
       );
       next.families = upsert(next.families, families);
-      next.children = upsert(next.children, children);
+      next.children = upsert(
+        next.children,
+        children.map((child) => {
+          const old = next.children.find((c) => c.id === child.id);
+          return old?.source === 'sportadmin' ? { ...old, familyId: child.familyId } : child;
+        }),
+      );
       next.adults = mergeAdults(next, adults);
       for (const entry of history) {
         if (entry.verified && timestamp(entry.endsAt) > timestamp(at))

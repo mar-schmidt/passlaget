@@ -12,6 +12,7 @@ export interface Child {
   name: string;
   familyId: string;
   active: boolean;
+  source?: 'manual' | 'sportadmin';
 }
 export interface Adult {
   id: string;
@@ -20,6 +21,7 @@ export interface Adult {
   email?: string;
   familyIds: string[];
   active: boolean;
+  source?: 'manual' | 'sportadmin';
 }
 export interface Family {
   id: string;
@@ -83,9 +85,11 @@ export interface SportAdminAttendance {
   error?: string;
   eligibleChildIds?: string[];
   eligibleFamilyIds?: string[];
+  manualFamilyIds?: string[];
 }
 export interface PortalEvent {
   attendance?: SportAdminAttendance;
+  manualParticipantIds?: string[];
   id: string;
   draft: EventDetails;
   published?: EventDetails;

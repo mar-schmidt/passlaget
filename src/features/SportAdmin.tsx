@@ -2,12 +2,13 @@ import { useEffect, useState } from 'react';
 import { api, isDemo } from '../client';
 import type { PortalState } from '../domain/model';
 import { attendanceWarnings } from '../domain/logic';
-import { dateLabel } from '../ui';
+
 interface Profile {
   clubId: number;
   clubName: string;
   groupId: number;
   memberId: number;
+  groupName?: string;
 }
 export interface Integration {
   connected: boolean;
@@ -20,13 +21,24 @@ export interface Integration {
   lastSyncAt?: string;
   error?: string;
   rosterStatus?: string;
+  inventoryEnabled?: boolean;
+  rosterError?: string;
+  inventory?: {
+    checkedAt: string;
+    groupName: string;
+    active: number;
+    departed: number;
+    missingEmail: number;
+  };
 }
 export default function SportAdminPanel({
   state,
   refresh,
+  onEditFamily,
 }: {
   state: PortalState;
   refresh: () => Promise<void>;
+  onEditFamily?: (familyId?: string) => void;
 }) {
   const [data, setData] = useState<Integration>();
   const [busy, setBusy] = useState(false);
@@ -34,7 +46,8 @@ export default function SportAdminPanel({
   const [notice, setNotice] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [preview, setPreview] = useState('');
+  const [query, setQuery] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   async function act(operation: string, values: Record<string, unknown> = {}) {
     setBusy(true);
     setError('');
@@ -48,7 +61,11 @@ export default function SportAdminPanel({
       setData(result.integration);
       if (operation !== 'status') {
         await refresh();
-        setNotice(result.integration.error || 'Uppgifterna är uppdaterade.');
+        setNotice(
+          result.integration.rosterError ||
+            result.integration.error ||
+            'Uppgifterna är uppdaterade.',
+        );
       }
     } catch (e) {
       setError((e as Error).message);
@@ -59,8 +76,13 @@ export default function SportAdminPanel({
   useEffect(() => {
     if (!isDemo) void act('status');
   }, []);
-  const normal = (s: string) =>
-    s.toLocaleLowerCase('sv').normalize('NFC').trim().replace(/\s+/g, ' ');
+  const children = state.children
+    .filter(
+      (c) =>
+        (showInactive || c.active) &&
+        c.name.toLocaleLowerCase('sv').includes(query.toLocaleLowerCase('sv')),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name, 'sv'));
   return (
     <div className="sportadmin-panel">
       <div className="page-heading">
@@ -138,7 +160,10 @@ export default function SportAdminPanel({
             </p>
             {data.selected ? (
               <p>
-                {data.selected.clubName} · grupp {data.selected.groupId}
+                {data.selected.clubName} ·{' '}
+                {data.inventory?.groupName ||
+                  data.selected.groupName ||
+                  `grupp ${data.selected.groupId}`}
               </p>
             ) : (
               <label>
@@ -161,9 +186,9 @@ export default function SportAdminPanel({
               </label>
             )}
             <p className="muted">
-              {data.rosterStatus === 'verification_required'
-                ? 'Kontot har ledarbehörighet. Spelarinventeringen behöver verifieras innan automatisk avaktivering kan aktiveras.'
-                : 'Spelarinventeringen väntar på ledarbehörighet för laget. Inga barn markeras som slutade på grund av ett saknat kallelsesvar.'}
+              {data.inventoryEnabled
+                ? 'Spelare och föräldrakontakter uppdateras från SportAdmin. Integrationen kan enbart läsa.'
+                : 'Aktivera Spelarinventeringen när kontot har ledarbehörighet för laget.'}
             </p>
             <button className="text-button" disabled={busy} onClick={() => void act('disconnect')}>
               Koppla från SportAdmin
@@ -172,52 +197,135 @@ export default function SportAdminPanel({
           {data.selected && (
             <>
               <section className="panel">
-                <h2>Koppla spelarna</h2>
-                <p>
-                  Hämta spelare från en aktivitet. Koppla varje namn till rätt barn i Passlaget.
-                  Detta behöver normalt bara göras en gång.
-                </p>
-                <label>
-                  Hämta spelare från
-                  <select value={preview} onChange={(e) => setPreview(e.target.value)}>
-                    <option value="">Välj aktivitet</option>
-                    {data.activities.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {dateLabel(a.startsAt)} · {a.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="button secondary"
-                  disabled={busy || !preview}
-                  onClick={() => void act('preview', { activityId: Number(preview) })}
-                >
-                  Hämta spelare
-                </button>
-                {data.players.length > 0 && (
+                <div className="page-heading">
+                  <div>
+                    <h2>Spelarinventeringen</h2>
+                    <p>
+                      SportAdmins register gäller för spelare med status <strong>synka</strong>.
+                      Spelare med status <strong>manuell</strong> sköter du här i Passlaget.
+                    </p>
+                  </div>
+                  {onEditFamily && (
+                    <button className="button secondary" onClick={() => onEditFamily()}>
+                      Lägg till manuell spelare
+                    </button>
+                  )}
+                </div>
+                {!data.inventoryEnabled && (
                   <button
-                    className="button secondary"
+                    className="button primary"
                     disabled={busy}
-                    onClick={() => void act('map_exact')}
+                    onClick={() => void act('inventory_sync')}
                   >
-                    Koppla entydiga namnträffar
+                    Aktivera Spelarinventeringen
                   </button>
                 )}
-                {data.players.length > 0 && (
-                  <div className="sa-mappings">
-                    {state.children
-                      .filter((c) => c.active || data.mapping[c.id])
-                      .map((child) => {
-                        const suggestions = data.players.filter(
-                          (p) => normal(p.name) === normal(child.name),
+                {data.inventory && (
+                  <p className="muted">
+                    {data.inventory.active} aktiva spelare i SportAdmin ·{' '}
+                    {state.children.filter((c) => c.source === 'manual' && c.active).length}{' '}
+                    manuella spelare. Senast läst:{' '}
+                    {new Date(data.inventory.checkedAt).toLocaleString('sv-SE')}.
+                  </p>
+                )}
+                {data.rosterError && (
+                  <p role="alert" className="notice">
+                    {data.rosterError} Senast sparade inventering behålls.
+                  </p>
+                )}
+                {!!data.inventory?.missingEmail && (
+                  <p className="notice">
+                    Mejladress saknas för {data.inventory.missingEmail} föräldrakontakt(er).
+                    Komplettera i SportAdmin och uppdatera här.
+                  </p>
+                )}
+                <div className="inventory-toolbar">
+                  <label>
+                    Sök spelare
+                    <input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder="Spelarens namn"
+                    />
+                  </label>
+                  <label className="check-label">
+                    <input
+                      type="checkbox"
+                      checked={showInactive}
+                      onChange={(e) => setShowInactive(e.target.checked)}
+                    />
+                    Visa även slutade spelare
+                  </label>
+                </div>
+                <div className="table-scroll">
+                  <table className="inventory-table">
+                    <thead>
+                      <tr>
+                        <th>Spelare</th>
+                        <th>Status</th>
+                        <th>I laget</th>
+                        <th>Föräldrakontakter</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {children.map((child) => {
+                        const synced = child.source === 'sportadmin' || !!data.mapping[child.id];
+                        const parents = state.adults.filter(
+                          (a) => a.active && a.familyIds.includes(child.familyId),
                         );
                         return (
+                          <tr key={child.id}>
+                            <td>
+                              <strong>{child.name}</strong>
+                            </td>
+                            <td>
+                              <span className={`badge ${synced ? 'confirmed' : 'exempt'}`}>
+                                {synced ? 'synka' : 'manuell'}
+                              </span>
+                            </td>
+                            <td>{child.active ? 'Aktiv' : 'Slutat'}</td>
+                            <td>
+                              {parents.length
+                                ? parents.map((a) => a.name).join(', ')
+                                : 'Inga aktiva kontakter'}
+                              {parents.some((a) => !a.email) && (
+                                <small className="inventory-missing">Mejladress saknas</small>
+                              )}
+                            </td>
+                            <td>
+                              {onEditFamily && (
+                                <button
+                                  className="text-button"
+                                  onClick={() => onEditFamily(child.familyId)}
+                                  aria-label={`Visa familjen för ${child.name}`}
+                                >
+                                  Visa familj
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                {!children.length && <p>Inga spelare matchar sökningen.</p>}
+                {data.players.length > 0 && (
+                  <details className="instructions">
+                    <summary>Koppla en befintlig spelare till SportAdmin</summary>
+                    <p>
+                      Koppla namn som behöver rättas. Entydiga namnträffar kopplas automatiskt vid
+                      inventeringen.
+                    </p>
+                    <div className="sa-mappings">
+                      {state.children
+                        .filter(
+                          (c) => c.active && (!data.inventoryEnabled || c.source === 'manual'),
+                        )
+                        .map((child) => (
                           <label key={child.id}>
-                            <span>
-                              {child.name}
-                              {!child.active ? ' (inaktiv)' : ''}
-                            </span>
+                            {child.name}
                             <select
                               aria-label={`SportAdmin-spelare för ${child.name}`}
                               disabled={busy}
@@ -229,12 +337,7 @@ export default function SportAdminPanel({
                                 })
                               }
                             >
-                              <option value="">
-                                Inte kopplad
-                                {suggestions.length === 1
-                                  ? ` – förslag: ${suggestions[0].name}`
-                                  : ''}
-                              </option>
+                              <option value="">Inte kopplad</option>
                               {data.players.map((p) => (
                                 <option
                                   key={p.id}
@@ -244,14 +347,13 @@ export default function SportAdminPanel({
                                   )}
                                 >
                                   {p.name}
-                                  {p.birthYear ? ` (${p.birthYear})` : ''}
                                 </option>
                               ))}
                             </select>
                           </label>
-                        );
-                      })}
-                  </div>
+                        ))}
+                    </div>
+                  </details>
                 )}
               </section>
               <section className="panel">

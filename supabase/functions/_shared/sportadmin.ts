@@ -8,7 +8,9 @@ import {
   type Activity,
   type Membership,
   type Participant,
+  type Roster,
 } from './sportadmin-api.ts';
+import { reconcileInventory } from './sportadmin-inventory.ts';
 import { HttpError } from './security.ts';
 type Rpc = (op: string, args?: Record<string, unknown>) => Promise<any>;
 interface Connection {
@@ -23,7 +25,10 @@ interface Connection {
   snapshots?: Record<string, { players: Participant[]; checkedAt: string; error?: string }>;
   lastSyncAt?: string;
   error?: string;
-  rosterStatus?: 'leader_required' | 'verification_required';
+  rosterStatus?: 'leader_required' | 'verification_required' | 'ready' | 'error';
+  inventoryEnabled?: boolean;
+  roster?: Roster;
+  rosterError?: string;
 }
 const safeError = (error: unknown) =>
   error instanceof SportAdminError
@@ -41,6 +46,17 @@ export function connectionStatus(c: Connection | null) {
     lastSyncAt: c?.lastSyncAt,
     error: c?.error,
     rosterStatus: c?.rosterStatus,
+    inventoryEnabled: !!c?.inventoryEnabled,
+    rosterError: c?.rosterError,
+    inventory: c?.roster
+      ? {
+          checkedAt: c.roster.checkedAt,
+          groupName: c.roster.groupName,
+          active: c.roster.players.filter((p) => p.active).length,
+          departed: c.roster.players.filter((p) => !p.active).length,
+          missingEmail: c.roster.players.flatMap((p) => p.guardians).filter((g) => !g.email).length,
+        }
+      : undefined,
   };
 }
 export function applyAttendance(state: PortalState, c: Connection): PortalState {
@@ -62,9 +78,12 @@ export function applyAttendance(state: PortalState, c: Connection): PortalState 
     event.attendance = {
       title: link.title,
       checkedAt: snapshot?.checkedAt || '',
-      error: c.error || snapshot?.error,
+      error: c.error || c.rosterError || snapshot?.error,
       eligibleChildIds: next.children
-        .filter((child) => child.active && yes.has(c.mapping?.[child.id] || 0))
+        .filter(
+          (child) =>
+            child.active && child.source !== 'manual' && yes.has(c.mapping?.[child.id] || 0),
+        )
         .map((child) => child.id),
     };
   }
@@ -105,6 +124,7 @@ export async function sportadminAction(
       'sync',
       'disconnect',
       'save_event',
+      'inventory_sync',
     ].includes(op)
   )
     throw new HttpError(400, 'Okänd SportAdmin-åtgärd.');
@@ -114,12 +134,32 @@ export async function sportadminAction(
   const args = { team_id: state.team.id, lease: lease.lease };
   let c: Connection = lease.data;
   let finished = false;
+  let inventoryUpdated = false;
   async function finish() {
     for (let attempt = 0; attempt < 3; attempt++) {
       const latest = await load(state.team.slug);
       if (savingEvent && latest.version !== body.expectedVersion)
         throw new HttpError(409, 'Schemat har ändrats. Öppna evenemanget igen.');
-      let next = applyAttendance(latest, c);
+      let next = structuredClone(latest);
+      if (inventoryUpdated && c.roster) {
+        const result = reconcileInventory(
+          next,
+          c.roster,
+          c.mapping || {},
+          op === 'inventory_sync' && Array.isArray(body.manualChildIds) ? body.manualChildIds : [],
+        );
+        next = result.state;
+        c.mapping = result.mapping;
+        if (JSON.stringify(next) !== JSON.stringify(latest))
+          next.audit.push({
+            id: `audit:${latest.version + 1}`,
+            at: c.roster.checkedAt,
+            actor: 'admin',
+            action: 'sportadmin_inventory',
+            summary: `Spelarinventeringen uppdaterades från ${c.roster.groupName}. ${result.added} nya spelare. Historiken behölls.`,
+          });
+      }
+      next = applyAttendance(next, c);
       if (savingEvent) {
         next = applyAttendance(
           applyCommand(next, { type: 'save_event', event: body.event }, 'admin'),
@@ -143,7 +183,7 @@ export async function sportadminAction(
               );
           }
       }
-      const changed = savingEvent || JSON.stringify(next.events) !== JSON.stringify(latest.events);
+      const changed = savingEvent || JSON.stringify(next) !== JSON.stringify(latest);
       if (changed) next.version = latest.version + 1;
       try {
         await rpc('finish', {
@@ -161,6 +201,18 @@ export async function sportadminAction(
     throw new HttpError(409, 'Schemat uppdateras. Försök igen.');
   }
   try {
+    if (
+      body.manualChildIds !== undefined &&
+      (op !== 'inventory_sync' ||
+        c.inventoryEnabled ||
+        !Array.isArray(body.manualChildIds) ||
+        body.manualChildIds.length > 1000 ||
+        body.manualChildIds.some((id: unknown) => typeof id !== 'string'))
+    )
+      throw new HttpError(
+        400,
+        'Undantag för befintliga manuella spelare kan bara anges vid första inventeringen.',
+      );
     if (op === 'disconnect') {
       // Keep restrictions in place when disconnected. Explicit unlink is a separate admin choice.
       delete c.session;
@@ -227,8 +279,14 @@ export async function sportadminAction(
       await rpc('save', { ...args, data: c });
     }
     if (op === 'select') {
-      if (Object.keys(c.links || {}).length)
-        throw new HttpError(400, 'Ta bort evenemangens kopplingar innan du byter SportAdmin-lag.');
+      if (
+        Object.keys(c.links || {}).length ||
+        state.children.some((p) => p.source === 'sportadmin')
+      )
+        throw new HttpError(
+          400,
+          'Laget används av kopplade evenemang eller Spelarinventeringen och kan inte bytas här.',
+        );
       const selected = c.profiles?.find(
         (p) =>
           p.clubId === body.clubId && p.groupId === body.groupId && p.memberId === body.memberId,
@@ -256,6 +314,34 @@ export async function sportadminAction(
         c.rosterStatus = 'leader_required';
       }
     }
+    if (op === 'inventory_sync' || (c.inventoryEnabled && ['connect', 'sync'].includes(op))) {
+      try {
+        const roster = await api.roster();
+        c.players = roster.players.map((p) => ({
+          id: p.id,
+          name: p.name,
+          birthYear: '',
+          answer: 'unknown',
+          hasQuit: !p.active,
+          removed: false,
+        }));
+        // Validate reconciliation before replacing the last good snapshot.
+        reconcileInventory(
+          state,
+          roster,
+          c.mapping,
+          op === 'inventory_sync' && Array.isArray(body.manualChildIds) ? body.manualChildIds : [],
+        );
+        c.roster = roster;
+        c.inventoryEnabled = true;
+        c.rosterStatus = 'ready';
+        delete c.rosterError;
+        inventoryUpdated = true;
+      } catch (error) {
+        c.rosterStatus = 'error';
+        c.rosterError = error instanceof DomainError ? error.message : safeError(error);
+      }
+    }
     const collect = (rows: Participant[]) => {
       const byId = new Map((c.players || []).map((p) => [p.id, p]));
       rows.forEach((p) => byId.set(p.id, p));
@@ -267,6 +353,11 @@ export async function sportadminAction(
       collect(await api.participants(activity));
     }
     if (op === 'map_exact') {
+      if (c.inventoryEnabled)
+        throw new HttpError(
+          400,
+          'Använd Spelarinventeringen för att koppla spelare till registret.',
+        );
       const normal = (s: string) =>
         s.toLocaleLowerCase('sv').normalize('NFC').trim().replace(/\s+/g, ' ');
       for (const child of state.children.filter((child) => child.active && !c.mapping![child.id])) {
@@ -285,8 +376,14 @@ export async function sportadminAction(
         !state.children.some((child) => child.id === body.childId)
       )
         throw new HttpError(400, 'Välj en spelare i Passlaget.');
-      if (body.memberId === null) delete c.mapping[body.childId];
-      else {
+      if (body.memberId === null) {
+        if (c.inventoryEnabled && c.mapping[body.childId])
+          throw new HttpError(
+            400,
+            'Spelaren synkas från SportAdmins register och kan inte kopplas från här.',
+          );
+        delete c.mapping[body.childId];
+      } else {
         if (!c.players?.some((p) => p.id === body.memberId))
           throw new HttpError(400, 'Välj en hämtad SportAdmin-spelare.');
         if (
@@ -295,7 +392,18 @@ export async function sportadminAction(
           )
         )
           throw new HttpError(400, 'SportAdmin-spelaren är redan kopplad till ett annat barn.');
+        if (c.inventoryEnabled) {
+          const roster = await api.roster();
+          if (!roster.players.some((p) => p.id === body.memberId))
+            throw new HttpError(400, 'Spelaren finns inte i det anslutna lagets spelarregister.');
+          c.roster = roster;
+        }
         c.mapping[body.childId] = body.memberId;
+      }
+      if (c.inventoryEnabled) {
+        inventoryUpdated = true;
+        c.rosterStatus = 'ready';
+        delete c.rosterError;
       }
     }
     if (op === 'link' || savingEvent) {
@@ -341,13 +449,17 @@ export async function sportadminAction(
       }
       c.lastSyncAt = new Date().toISOString();
     }
-    if (['sync', 'connect', 'select', 'preview', 'link', 'save_event'].includes(op)) delete c.error;
+    if (
+      ['sync', 'connect', 'select', 'preview', 'link', 'save_event', 'inventory_sync'].includes(op)
+    )
+      delete c.error;
     return await finish();
   } catch (error) {
     if (savingEvent) {
       if (error instanceof HttpError || error instanceof DomainError) throw error;
       throw new HttpError(503, safeError(error));
     }
+    if (error instanceof DomainError) throw error;
     if (error instanceof SportAdminError || !(error instanceof HttpError)) {
       c.error = safeError(error);
       return await finish();

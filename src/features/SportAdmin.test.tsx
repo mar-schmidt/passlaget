@@ -28,7 +28,8 @@ test('connection page keeps roster tools and explains that events are linked in 
   await screen.findByRole('heading', { name: 'Kopplade evenemang' });
   expect(screen.queryByLabelText('Evenemang i Passlaget')).toBeNull();
   expect(screen.getByText(/när du skapar eller redigerar evenemanget/)).toBeTruthy();
-  expect(screen.getByText(/väntar på ledarbehörighet/)).toBeTruthy();
+  expect(screen.getByRole('heading', { name: 'Spelarinventeringen' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Aktivera Spelarinventeringen' })).toBeTruthy();
 });
 test('connection form clears password after submit', async () => {
   api.mockResolvedValue({
@@ -48,4 +49,42 @@ test('connection form clears password after submit', async () => {
   await user.type(screen.getByLabelText('Lösenord till SportAdmin'), 'synthetic-password');
   await user.click(screen.getByRole('button', { name: 'Anslut SportAdmin' }));
   expect((screen.getByLabelText('Lösenord till SportAdmin') as HTMLInputElement).value).toBe('');
+});
+
+test('inventory searches players, shows source and departed status, and opens the correct family', async () => {
+  const s = demoState();
+  s.children[0].source = 'sportadmin';
+  s.children[0].active = false;
+  s.children[1].source = 'manual';
+  api.mockResolvedValue({
+    integration: {
+      connected: true,
+      selected: { clubId: 1, clubName: 'Test', groupId: 2, memberId: 3 },
+      profiles: [],
+      activities: [],
+      players: [],
+      mapping: {},
+      links: {},
+      inventoryEnabled: true,
+      inventory: {
+        checkedAt: '2026-09-22T10:00:00Z',
+        groupName: 'P2018',
+        active: 1,
+        departed: 1,
+        missingEmail: 0,
+      },
+    },
+  });
+  const onEditFamily = vi.fn();
+  render(<SportAdminPanel state={s} refresh={async () => {}} onEditFamily={onEditFamily} />);
+  await screen.findByRole('heading', { name: 'Spelarinventeringen' });
+  const user = userEvent.setup();
+  expect(screen.queryByText(s.children[0].name)).toBeNull();
+  await user.click(screen.getByLabelText('Visa även slutade spelare'));
+  await user.type(screen.getByLabelText('Sök spelare'), s.children[0].name);
+  expect(screen.getByText('Slutat')).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: `Visa familjen för ${s.children[0].name}` }));
+  expect(onEditFamily).toHaveBeenCalledWith(s.children[0].familyId);
+  await user.click(screen.getByRole('button', { name: 'Lägg till manuell spelare' }));
+  expect(onEditFamily).toHaveBeenLastCalledWith();
 });

@@ -803,6 +803,7 @@ function ConfirmModal({
   const [accept, setAccept] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const syncedAdult = adults.find((a) => a.id === adultId)?.source === 'sportadmin';
   return (
     <Modal title={item.booking ? 'Boka ett uppdrag' : 'Bekräfta familjens pass'} onClose={onClose}>
       <form
@@ -864,49 +865,58 @@ function ConfirmModal({
             </select>
           </label>
         )}
-        <label>
-          Namn
-          <input
-            required
-            maxLength={120}
-            autoComplete="name"
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setAdultId('');
-            }}
-          />
-        </label>
-        <label>
-          Telefonnummer
-          <input
-            required
-            type="tel"
-            maxLength={30}
-            autoComplete="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-        </label>
-        <p className="hint">
-          Namn och telefonnummer visas i evenemangets schema. Uppgifterna gäller detta pass.
-        </p>
-        <label>
-          Mejladress
-          <input
-            required
-            type="email"
-            maxLength={254}
-            autoComplete="email"
-            inputMode="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </label>
-        <p className="hint">
-          Mejladressen sparas på den som kommer och används för tilldelningar och påminnelser. Den
-          visas inte för andra föräldrar.
-        </p>
+        {syncedAdult ? (
+          <p className="notice">
+            Namn, telefonnummer och mejladress hämtas från SportAdmin när du bekräftar. Mejl går
+            till adressen som är registrerad där. Kontaktuppgifter ändras i SportAdmin.
+          </p>
+        ) : (
+          <>
+            <label>
+              Namn
+              <input
+                required
+                maxLength={120}
+                autoComplete="name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setAdultId('');
+                }}
+              />
+            </label>
+            <label>
+              Telefonnummer
+              <input
+                required
+                type="tel"
+                maxLength={30}
+                autoComplete="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+              />
+            </label>
+            <p className="hint">
+              Namn och telefonnummer visas i evenemangets schema. Uppgifterna gäller detta pass.
+            </p>
+            <label>
+              Mejladress
+              <input
+                required
+                type="email"
+                maxLength={254}
+                autoComplete="email"
+                inputMode="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </label>
+            <p className="hint">
+              Mejladressen sparas på den som kommer och används för tilldelningar och påminnelser.
+              Den visas inte för andra föräldrar.
+            </p>
+          </>
+        )}
         <AnswerFields
           shift={item.shift}
           answer={answer}

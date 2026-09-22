@@ -124,6 +124,7 @@ export default function Admin({
   const [editing, setEditing] = useState<PortalEvent | null>(null);
   const [completion, setCompletion] = useState<string | null>(null);
   const [copying, setCopying] = useState<PortalEvent | null>(null);
+  const [inventoryFamily, setInventoryFamily] = useState<Family | null>(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const upcoming = state.events
@@ -512,7 +513,31 @@ export default function Admin({
       )}
       {page === 'familjer' && <Families state={state} mutate={mutate} tell={tell} />}
       {page === 'fordelning' && <Fairness state={state} mutate={mutate} tell={tell} />}
-      {page === 'sportadmin' && <SportAdminPanel state={state} refresh={refresh} />}
+      {page === 'sportadmin' && (
+        <SportAdminPanel
+          state={state}
+          refresh={refresh}
+          onEditFamily={(id) =>
+            setInventoryFamily(
+              state.families.find((f) => f.id === id) || {
+                id: uid(),
+                label: '',
+                active: true,
+                exempt: false,
+              },
+            )
+          }
+        />
+      )}
+      {inventoryFamily && (
+        <FamilyEditor
+          family={inventoryFamily}
+          state={state}
+          mutate={mutate}
+          tell={tell}
+          onClose={() => setInventoryFamily(null)}
+        />
+      )}
       {page === 'paminnelser' && <Reminders state={state} mutate={mutate} tell={tell} />}
       {editing && (
         <EventEditor
@@ -813,6 +838,37 @@ function EventEditor({
               Spara kopplingen innan du väljer familjer manuellt. Du kan också trycka på Fördela
               lediga pass för att spara och fördela direkt.
             </p>
+          )}
+          {(typeof activityId === 'number' || (activityId === undefined && event.attendance)) && (
+            <div className="manual-participants">
+              <h3>Manuella spelare som deltar</h3>
+              <p className="hint">
+                Markera de manuella spelare som ska vara med. Då kan deras familjer få pass på detta
+                evenemang.
+              </p>
+              {state.children
+                .filter((c) => c.active && c.source === 'manual')
+                .map((child) => (
+                  <label className="check-label" key={child.id}>
+                    <input
+                      type="checkbox"
+                      checked={event.manualParticipantIds?.includes(child.id) || false}
+                      onChange={(e) =>
+                        setEvent((old) => ({
+                          ...old,
+                          manualParticipantIds: e.target.checked
+                            ? [...(old.manualParticipantIds || []), child.id]
+                            : (old.manualParticipantIds || []).filter((id) => id !== child.id),
+                        }))
+                      }
+                    />
+                    {child.name}
+                  </label>
+                ))}
+              {!state.children.some((c) => c.active && c.source === 'manual') && (
+                <p className="hint">Inga aktiva manuella spelare finns i laget.</p>
+              )}
+            </div>
           )}
         </div>
         {tab === 'details' && (
@@ -1822,6 +1878,7 @@ function FamilyEditor({
                     required
                     maxLength={120}
                     value={child.name}
+                    disabled={child.source === 'sportadmin'}
                     onChange={(e) => patchChild(child.id, { name: e.target.value })}
                   />
                 </label>
@@ -1829,10 +1886,12 @@ function FamilyEditor({
                   <input
                     type="checkbox"
                     checked={child.active}
+                    disabled={child.source === 'sportadmin'}
                     onChange={(e) => patchChild(child.id, { active: e.target.checked })}
                   />
                   Aktiv i laget
                 </label>
+                <span className="badge">{child.source === 'sportadmin' ? 'synka' : 'manuell'}</span>
               </div>
             ))}
             <button
@@ -1841,7 +1900,7 @@ function FamilyEditor({
               onClick={() =>
                 setChildren([
                   ...children,
-                  { id: uid(), name: '', familyId: family.id, active: true },
+                  { id: uid(), name: '', familyId: family.id, active: true, source: 'manual' },
                 ])
               }
             >
@@ -1859,6 +1918,7 @@ function FamilyEditor({
                     required
                     maxLength={120}
                     value={adult.name}
+                    disabled={adult.source === 'sportadmin'}
                     onChange={(e) => patchAdult(adult.id, { name: e.target.value })}
                   />
                 </label>
@@ -1869,6 +1929,7 @@ function FamilyEditor({
                     required
                     maxLength={30}
                     value={adult.phone}
+                    disabled={adult.source === 'sportadmin'}
                     onChange={(e) => patchAdult(adult.id, { phone: e.target.value })}
                   />
                 </label>
@@ -1879,6 +1940,7 @@ function FamilyEditor({
                     maxLength={254}
                     autoComplete="email"
                     value={adult.email || ''}
+                    disabled={adult.source === 'sportadmin'}
                     onChange={(e) => patchAdult(adult.id, { email: e.target.value })}
                   />
                 </label>
@@ -1886,6 +1948,7 @@ function FamilyEditor({
                   <input
                     type="checkbox"
                     checked={adult.active}
+                    disabled={adult.source === 'sportadmin'}
                     onChange={(e) => patchAdult(adult.id, { active: e.target.checked })}
                   />
                   Aktiv
@@ -1907,7 +1970,7 @@ function FamilyEditor({
             </button>
             <p className="hint">
               Mejladresser visas bara här för administratören och används för tilldelningar och
-              påminnelser. Föräldrar fyller också i mejladressen när de bekräftar ett pass.
+              påminnelser. Uppgifter med status synka ändras i SportAdmin och uppdateras sedan här.
             </p>
           </div>
           <div className="form-section form-stack">
@@ -1916,6 +1979,7 @@ function FamilyEditor({
               <input
                 type="checkbox"
                 checked={draft.active}
+                disabled={children.some((c) => c.source === 'sportadmin')}
                 onChange={(e) => setDraft({ ...draft, active: e.target.checked })}
               />
               <span>Familjen är aktiv i laget</span>

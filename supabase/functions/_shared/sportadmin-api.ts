@@ -178,6 +178,79 @@ export interface Membership {
   memberId: number;
   groupId: number;
   subId: number;
+  groupName?: string;
+}
+export interface Guardian {
+  position: number;
+  name: string;
+  phone: string;
+  email: string;
+}
+export interface RosterPlayer {
+  id: number;
+  name: string;
+  active: boolean;
+  guardians: Guardian[];
+}
+export interface Roster {
+  clubId: number;
+  groupId: number;
+  groupName: string;
+  checkedAt: string;
+  players: RosterPlayer[];
+}
+interface LeaderContext {
+  clubId: number;
+  userId: number;
+  groupId: number;
+  teamId: number;
+  periodId: number;
+  groupName: string;
+}
+const readMethods = new Map([
+  ['/GrpcMemberUserProfileService/GetUserProfiles', false],
+  ['/GrpcMemberActivitiesService/GetMemberAppHomeActivities', false],
+  ['/GrpcMemberActivitiesService/GetMemberAppActivityInformation', false],
+  ['/GrpcMemberCallingsService/GetActivityCalling', false],
+  ['/GrpcUserProfileService/GetUserProfiles', true],
+  ['/GrpcTeamRegisterTeamService/GetTeamMembers', true],
+  ['/GrpcUserGroupsService/GetMemberDetail', true],
+]);
+export function parseRoster(root: Message): RosterPlayer[] {
+  if (number(root, 1) !== 1)
+    throw new SportAdminError('access', 'Spelarregistret kunde inte läsas för det valda laget.');
+  const seen = new Set<number>();
+  const rows = messages(root, 2).filter((m) => number(m, 7) !== 1);
+  // This endpoint returns the complete group, without pagination. An empty or
+  // malformed response is never evidence that everyone has left the team.
+  if (!rows.length || rows.length > 1000) return bad();
+  return rows.map((m) => {
+    const id = number(m, 2),
+      name = `${text(m, 3)} ${text(m, 4)}`.trim();
+    if (!id || !name || seen.has(id)) return bad();
+    seen.add(id);
+    return { id, name, active: number(m, 10) !== 1 && number(m, 19) === 1, guardians: [] };
+  });
+}
+export function parseGuardians(root: Message, memberId: number): Guardian[] {
+  const detail = messages(root, 3)[0];
+  if (number(root, 1) !== 1 || !detail || number(detail, 17) !== memberId) return bad();
+  if (number(detail, 19) === 1)
+    throw new SportAdminError(
+      'access',
+      'En skyddad medlemsprofil behöver hanteras i SportAdmin. Inventeringen är oförändrad.',
+    );
+  return [
+    [1, 12, 10, 11],
+    [2, 15, 13, 14],
+  ].flatMap(([position, nameField, phoneField, emailField]) => {
+    const name = text(detail, nameField).trim();
+    const phone = text(detail, phoneField).trim();
+    const email = text(detail, emailField).trim().toLocaleLowerCase('sv');
+    if (!name && !phone && !email) return [];
+    if (name.length > 160 || phone.length > 80 || email.length > 254) return bad();
+    return [{ position, name: name || `Vårdnadshavare ${position}`, phone, email }];
+  });
 }
 export interface Activity {
   id: number;
@@ -229,6 +302,7 @@ export function parseParticipants(root: Message): Participant[] {
     });
 }
 export class SportAdmin {
+  private leaderContext?: LeaderContext;
   constructor(
     private session: Session,
     private memberships: Membership[] = [],
@@ -239,6 +313,8 @@ export class SportAdmin {
     fields: [number, number | Uint8Array][],
     leader = false,
   ): Promise<Message> {
+    if (!readMethods.has(path) || readMethods.get(path) !== leader)
+      throw new SportAdminError('access', 'Integrationen får bara läsa från SportAdmin.');
     const data = encode(fields),
       frame = new Uint8Array(data.length + 5);
     new DataView(frame.buffer).setUint32(1, data.length);
@@ -256,6 +332,13 @@ export class SportAdmin {
           'x-grpc-web': '1',
           'x-user-agent': 'grpc-web-dotnet/1.0',
           'grpc-accept-encoding': 'identity',
+          ...(leader && this.leaderContext
+            ? {
+                sa_gid: String(this.leaderContext.groupId),
+                sa_uid: String(this.leaderContext.userId),
+                sa_rid: String(this.leaderContext.clubId),
+              }
+            : {}),
           ...(!leader && this.memberships.length
             ? {
                 sa_msp: this.memberships
@@ -282,6 +365,7 @@ export class SportAdmin {
         memberId: number(m, 4),
         groupId: number(m, 14),
         subId: nestedNumber(m, 18),
+        groupName: text(m, 15),
       }))
       .filter((m) => m.clubId && m.memberId && m.groupId);
   }
@@ -289,6 +373,78 @@ export class SportAdmin {
     return messages(await this.call('/GrpcUserProfileService/GetUserProfiles', [], true), 3).map(
       (m) => nestedNumber(m, 9),
     );
+  }
+  async roster(): Promise<Roster> {
+    const deadline = Date.now() + 90_000;
+    const selected = this.memberships.length === 1 ? this.memberships[0] : undefined;
+    if (!selected) throw new SportAdminError('access', 'Välj ett lag för spelarinventeringen.');
+    const profiles = await this.call('/GrpcUserProfileService/GetUserProfiles', [], true);
+    if (number(profiles, 1) !== 1) return bad();
+    const contexts = messages(profiles, 3)
+      .filter((p) => nestedNumber(p, 9) === selected.clubId)
+      .flatMap((p) =>
+        messages(p, 23)
+          .filter((g) => number(g, 3) === selected.groupId && number(g, 10) === 1)
+          .map((g) => ({
+            clubId: selected.clubId,
+            userId: nestedNumber(p, 12),
+            groupId: number(g, 3),
+            teamId: nestedNumber(g, 4),
+            periodId: number(g, 2),
+            groupName: text(g, 7),
+          })),
+      );
+    if (contexts.length !== 1 || !contexts[0].userId || !contexts[0].periodId)
+      throw new SportAdminError(
+        'access',
+        'Ledarbehörighet för det anslutna lagets aktiva period saknas.',
+      );
+    this.leaderContext = contexts[0];
+    const context = contexts[0];
+    const players = parseRoster(
+      await this.call(
+        '/GrpcTeamRegisterTeamService/GetTeamMembers',
+        [
+          [1, context.teamId],
+          [2, context.groupId],
+        ],
+        true,
+      ),
+    );
+    // Four simultaneous read requests keep this within Supabase Free's runtime.
+    // Keep the entire snapshot uncommitted if any contact request fails.
+    for (let i = 0; i < players.length; i += 4) {
+      if (Date.now() > deadline - 20_000)
+        throw new SportAdminError(
+          'upstream',
+          'Spelarregistret tog för lång tid att läsa. Senaste inventeringen behålls.',
+        );
+      await Promise.all(
+        players
+          .slice(i, i + 4)
+          .filter((p) => p.active)
+          .map(async (p) => {
+            p.guardians = parseGuardians(
+              await this.call(
+                '/GrpcUserGroupsService/GetMemberDetail',
+                [
+                  [1, p.id],
+                  [4, context.periodId],
+                ],
+                true,
+              ),
+              p.id,
+            );
+          }),
+      );
+    }
+    return {
+      clubId: context.clubId,
+      groupId: context.groupId,
+      groupName: context.groupName,
+      checkedAt: new Date().toISOString(),
+      players,
+    };
   }
   async activities(): Promise<Activity[]> {
     const root = await this.call('/GrpcMemberActivitiesService/GetMemberAppHomeActivities', [
