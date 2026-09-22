@@ -206,7 +206,10 @@ export default function SportAdminPanel({
                     </p>
                   </div>
                   {onEditFamily && (
-                    <button className="button secondary" onClick={() => onEditFamily()}>
+                    <button
+                      className="button primary add-player-button"
+                      onClick={() => onEditFamily()}
+                    >
                       Lägg till manuell spelare
                     </button>
                   )}
@@ -235,8 +238,11 @@ export default function SportAdminPanel({
                 )}
                 {!!data.inventory?.missingEmail && (
                   <p className="notice">
-                    Mejladress saknas för {data.inventory.missingEmail} föräldrakontakt(er).
-                    Komplettera i SportAdmin och uppdatera här.
+                    Mejladress saknas för{' '}
+                    {data.inventory.missingEmail === 1
+                      ? 'en föräldrakontakt'
+                      : `${data.inventory.missingEmail} föräldrakontakter`}
+                    . Komplettera i SportAdmin och uppdatera här.
                   </p>
                 )}
                 <div className="inventory-toolbar">
