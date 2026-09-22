@@ -898,7 +898,7 @@ it('blocks another staffing booking but still offers voluntary preparations for 
   );
 });
 
-it('omits already assigned families from a vacant staffing place while keeping the current selection editable', async () => {
+it('shows already assigned families as disabled while keeping the current selection editable', async () => {
   const user = userEvent.setup();
   server.events[0].draft.shifts[0].slots.push({
     id: 'vacant-slot',
@@ -918,11 +918,11 @@ it('omits already assigned families from a vacant staffing place while keeping t
       .getAllByRole('option')
       .some((o) => (o as HTMLOptionElement).value === 'family-one'),
   ).toBe(true);
-  expect(
-    within(second)
-      .getAllByRole('option')
-      .some((o) => (o as HTMLOptionElement).value === 'family-one'),
-  ).toBe(false);
+  const unavailable = within(second).getByRole('option', {
+    name: /har redan ett pass/,
+  }) as HTMLOptionElement;
+  expect(unavailable.value).toBe('family-one');
+  expect(unavailable.disabled).toBe(true);
   expect(
     within(second)
       .getAllByRole('option')
@@ -1160,4 +1160,134 @@ it('allows App to submit an event snapshot after a background server change', as
   await screen.findByText('Utkastet är sparat.');
   expect(server.events[0].draft.title).toBe('Sparas trots synk');
   expect(server.events[0].attendance?.checkedAt).toBe('2030-06-01T12:00:00Z');
+});
+
+describe('manual replacement after automatic planning', () => {
+  const calling = (checkedAt: string) => ({
+    title: 'Testmatch',
+    checkedAt,
+    eligibleChildIds: ['child-one', 'child-two'],
+  });
+  async function open(user: ReturnType<typeof userEvent.setup>) {
+    const article = screen
+      .getByRole('heading', { name: 'Öppet testsammandrag' })
+      .closest('article')!;
+    await user.click(within(article).getByRole('button', { name: 'Öppna planering' }));
+  }
+  it('fetches fresh eligibility when opening an event from an old page and saves a replacement family', async () => {
+    const user = userEvent.setup();
+    server.events[0].attendance = calling('2030-06-01T08:00:00Z');
+    const stale = structuredClone(server);
+    server.version++;
+    server.events[0].attendance = calling('2030-06-01T12:00:00Z');
+    const mutate = vi.fn(async (command: PortalCommand, version?: number) => {
+      server = applyCommand(server, prepareEventCommand(server, command, version!), 'admin');
+      return structuredClone(server);
+    });
+    const tell = vi.fn();
+    render(<Admin state={stale} page="evenemang" navigate={vi.fn()} mutate={mutate} tell={tell} />);
+    await open(user);
+    const select = screen.getByRole('combobox', { name: 'Familj för plats 1' });
+    await waitFor(() =>
+      expect(
+        within(select)
+          .getAllByRole('option')
+          .some((o) => (o as HTMLOptionElement).value === 'family-two'),
+      ).toBe(true),
+    );
+    await user.selectOptions(select, 'family-two');
+    await user.click(screen.getByRole('button', { name: 'Spara utkast' }));
+    await waitFor(() => expect(tell).toHaveBeenCalledWith('Utkastet är sparat.'));
+    expect(server.events[0].draft.shifts[0].slots[0].familyId).toBe('family-two');
+    expect(server.events[0].published!.shifts[0].slots[0].familyId).toBe('family-one');
+  });
+  it('allows changing the proposed family immediately after automatic planning', async () => {
+    const user = userEvent.setup();
+    const mutate = vi.fn(async (command: PortalCommand, version?: number) => {
+      server = applyCommand(server, prepareEventCommand(server, command, version!), 'admin');
+      return structuredClone(server);
+    });
+    server.events[0].draft.shifts[0].slots[0].familyId = undefined;
+    const initial = structuredClone(server);
+    render(
+      <Admin state={initial} page="evenemang" navigate={vi.fn()} mutate={mutate} tell={vi.fn()} />,
+    );
+    await open(user);
+    await user.click(screen.getByRole('button', { name: 'Fördela lediga pass' }));
+    await waitFor(() => expect(mutate.mock.calls.some(([c]) => c.type === 'auto_plan')).toBe(true));
+    const select = screen.getByRole('combobox', {
+      name: 'Familj för plats 1',
+    }) as HTMLSelectElement;
+    await waitFor(() => expect(select.value).not.toBe(''));
+    const replacement = select.value === 'family-one' ? 'family-two' : 'family-one';
+    await user.selectOptions(select, replacement);
+    await user.click(screen.getByRole('button', { name: 'Spara utkast' }));
+    await waitFor(() =>
+      expect(server.events[0].draft.shifts[0].slots[0].familyId).toBe(replacement),
+    );
+  });
+  it('refreshes the choices without losing unsaved draft edits', async () => {
+    const user = userEvent.setup();
+    server.events[0].attendance = calling('2030-06-01T08:00:00Z');
+    render(
+      <Admin
+        state={structuredClone(server)}
+        page="evenemang"
+        navigate={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    await open(user);
+    await screen.findByText(/Kallelsesvaren behöver uppdateras/);
+    const title = screen.getByRole('textbox', { name: 'Evenemangets namn' }) as HTMLInputElement;
+    await user.clear(title);
+    await user.type(title, 'Min osparade rubrik');
+    server.version++;
+    server.events[0].attendance = calling('2030-06-01T12:00:00Z');
+    await user.click(screen.getByRole('button', { name: 'Uppdatera familjelistan' }));
+    const select = screen.getByRole('combobox', { name: 'Familj för plats 1' });
+    await waitFor(() =>
+      expect(
+        within(select)
+          .getAllByRole('option')
+          .some((o) => (o as HTMLOptionElement).value === 'family-two'),
+      ).toBe(true),
+    );
+    expect(title.value).toBe('Min osparade rubrik');
+    expect(screen.queryByText(/Kallelsesvaren behöver uppdateras/)).toBeNull();
+  });
+  it('keeps unregistered and inactive children out of the replacement choices', async () => {
+    const user = userEvent.setup();
+    server.events[0].attendance = {
+      ...calling('2030-06-01T12:00:00Z'),
+      eligibleChildIds: ['child-one'],
+    };
+    render(
+      <Admin state={server} page="evenemang" navigate={vi.fn()} mutate={vi.fn()} tell={vi.fn()} />,
+    );
+    await open(user);
+    const select = screen.getByRole('combobox', { name: 'Familj för plats 1' });
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .some((o) => (o as HTMLOptionElement).value === 'family-two'),
+    ).toBe(false);
+    server = structuredClone(server);
+    server.version++;
+    server.events[0].attendance = calling('2030-06-01T12:00:00Z');
+    server.children.find((c) => c.id === 'child-two')!.active = false;
+    await user.click(screen.getByRole('button', { name: 'Uppdatera familjelistan' }));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Uppdatera familjelistan' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .some((o) => (o as HTMLOptionElement).value === 'family-two'),
+    ).toBe(false);
+  });
 });

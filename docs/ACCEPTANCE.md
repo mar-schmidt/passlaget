@@ -90,3 +90,10 @@ Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera und
 - Två administratörer ändrar olika fält: båda ändringarna behålls. Ändrar de samma fält till olika värden ska den andra få ett begripligt konfliktmeddelande och behålla sina osparade formulärvärden.
 - En databasändring precis under sparandet ska kunna hanteras med en ny jämförelse, utan att dubbla utskick skapas eller SportAdmin-kopplingen skrivs över.
 - Aktuella kallelsesvar, aktiva familjer och gränsen på ett bemanningspass gäller även efter omläsning.
+
+## Manuell ändring efter automatisk fördelning
+
+- Efter Fördela lediga pass ska admin kunna välja en annan behörig familj i passets familjelista och spara utkastet. Publicerat schema ändras först vid publicering.
+- Planeringsvyn läser aktuella laguppgifter när den öppnas och en gång per minut. Uppdatera familjelistan hämtar dem direkt utan att skriva över osparade formulärändringar.
+- Familjer med ett annat bemanningspass på evenemanget visas som avstängda alternativ med texten ”har redan ett pass”. Deras nuvarande plats behöver först göras ledig för att flytta familjen. Frivilliga förberedelser omfattas inte av begränsningen.
+- Aktiva barn och aktuella ja-svar krävs fortfarande för synkade spelare på kopplade evenemang. Ett gammalt öppet formulär ska använda den senaste hämtade SportAdmin-informationen, inte sin ursprungliga kopia.

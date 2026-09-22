@@ -46,7 +46,7 @@ import {
   familyPassLimitErrors,
   validateEvent,
 } from '../domain/logic';
-import { api, isDemo, mailEnabled, mailStatus, type MailStatus } from '../client';
+import { api, readPortal, isDemo, mailEnabled, mailStatus, type MailStatus } from '../client';
 import {
   BusyButton,
   dateLabel,
@@ -590,7 +590,7 @@ function Stat({
 
 function EventEditor({
   initial,
-  state,
+  state: initialState,
   mutate,
   tell,
   onClose,
@@ -601,6 +601,42 @@ function EventEditor({
   tell: Tell;
   onClose: () => void;
 }) {
+  const [selectionState, setSelectionState] = useState<PortalState | null>(null);
+  const state =
+    selectionState && selectionState.version > initialState.version ? selectionState : initialState;
+  const [choicesLoading, setChoicesLoading] = useState(!isDemo);
+  const [choicesError, setChoicesError] = useState('');
+  const [choicesReload, setChoicesReload] = useState(0);
+  useEffect(() => {
+    if (isDemo) return;
+    let active = true;
+    async function updateChoices() {
+      setChoicesLoading(true);
+      try {
+        const latest = await readPortal(true);
+        if (!active) return;
+        setSelectionState((previous) =>
+          !previous || latest.version >= previous.version ? latest : previous,
+        );
+        setChoicesError('');
+      } catch {
+        if (active)
+          setChoicesError(
+            'Familjelistan kunde inte uppdateras. Försök igen innan du byter familj.',
+          );
+      } finally {
+        if (active) setChoicesLoading(false);
+      }
+    }
+    void updateChoices();
+    const timer = window.setInterval(() => {
+      void updateChoices();
+    }, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [initial.id, choicesReload]);
   const [event, setEvent] = useState(() => structuredClone(initial));
   const [saved, setSaved] = useState(() => JSON.stringify(initial));
   const [busy, setBusy] = useState('');
@@ -647,12 +683,23 @@ function EventEditor({
     };
   }, [initial.id, lookupAttempt]);
   const linkChanged = activityId !== savedActivityId;
-  const selectionEvent =
-    linkChanged && activityId === null ? { ...event, attendance: undefined } : event;
   const details = event.draft;
   const dirty = JSON.stringify(event) !== saved || linkChanged;
   const currentCount = eventCounts(event);
   const live = state.events.find((e) => e.id === event.id);
+  const selectionEvent = {
+    ...event,
+    attendance:
+      linkChanged && activityId === null ? undefined : live ? live.attendance : event.attendance,
+  };
+  const attendance = selectionEvent.attendance;
+  const attendanceAge = attendance ? Date.now() - Date.parse(attendance.checkedAt) : 0;
+  const attendanceUnavailable =
+    !!attendance &&
+    (!!attendance.error ||
+      !Number.isFinite(attendanceAge) ||
+      attendanceAge < -60_000 ||
+      attendanceAge > 2 * 3600_000);
   const patch = (value: Partial<EventDetails>) =>
     setEvent((e) => ({ ...e, draft: { ...e.draft, ...value } }));
   const patchShift = (id: string, value: Partial<Shift>) =>
@@ -728,6 +775,7 @@ function EventEditor({
       prepareEventCommand(state, command, baseVersion.current);
       let next = await mutate(command, baseVersion.current);
       setSavedActivityId(activityId);
+      setSelectionState(next);
       baseVersion.current = next.version;
       let updated = next.events.find((e) => e.id === event.id)!;
       baseEvent.current = structuredClone(updated);
@@ -739,6 +787,7 @@ function EventEditor({
           { type: 'auto_plan', eventId: event.id, baseEvent: baseEvent.current! },
           baseVersion.current,
         );
+        setSelectionState(next);
         baseVersion.current = next.version;
         updated = next.events.find((e) => e.id === event.id)!;
         baseEvent.current = structuredClone(updated);
@@ -760,6 +809,7 @@ function EventEditor({
           { type: 'publish_event', eventId: event.id, baseEvent: baseEvent.current! },
           baseVersion.current,
         );
+        setSelectionState(next);
         baseVersion.current = next.version;
         updated = next.events.find((e) => e.id === event.id)!;
         baseEvent.current = structuredClone(updated);
@@ -964,7 +1014,10 @@ function EventEditor({
                 <strong>
                   {currentCount.filled} av {currentCount.total} platser bemannade
                 </strong>
-                <p>Välj familj själv eller låt Passlaget fördela de lediga platserna.</p>
+                <p>
+                  Du kan byta den föreslagna familjen i listan under varje pass och sedan spara
+                  utkastet.
+                </p>
                 <p>Högst ett bemanningspass per familj och evenemang.</p>
                 {details.shifts.some((s) => s.kind === 'task') && (
                   <p>
@@ -988,6 +1041,29 @@ function EventEditor({
                 <Sparkles size={17} />
                 Fördela lediga pass
               </BusyButton>
+            </div>
+            <div className="instructions">
+              <p>
+                Familjer som redan har ett bemanningspass visas men kan inte väljas. Gör deras
+                nuvarande plats ledig först om du vill flytta dem.
+              </p>
+              {!isDemo && (
+                <button
+                  type="button"
+                  className="text-button"
+                  disabled={choicesLoading}
+                  onClick={() => setChoicesReload((n) => n + 1)}
+                >
+                  {choicesLoading ? 'Uppdaterar familjelistan…' : 'Uppdatera familjelistan'}
+                </button>
+              )}
+              {attendanceUnavailable && (
+                <p role="status">
+                  Kallelsesvaren behöver uppdateras under SportAdmin innan fler familjer kan väljas.
+                  Redan tilldelade familjer ligger kvar.
+                </p>
+              )}
+              {choicesError && <p role="alert">{choicesError}</p>}
             </div>
             {familyPassLimitErrors(state, details).map((message) => (
               <Notice key={message} error text={message} />
@@ -1248,14 +1324,26 @@ function EventEditor({
                                 (f) =>
                                   (f.active &&
                                     (!linkChanged || activityId === null) &&
-                                    (shift.kind === 'task' ||
-                                      !familyHasStaffingPass(details, f.id, slot.id)) &&
+                                    state.children.some((c) => c.active && c.familyId === f.id) &&
                                     attendanceEligible(state, selectionEvent, f.id)) ||
                                   f.id === slot.familyId,
                               )
                               .map((f) => (
-                                <option key={f.id} value={f.id}>
+                                <option
+                                  key={f.id}
+                                  value={f.id}
+                                  disabled={
+                                    f.id !== slot.familyId &&
+                                    shift.kind !== 'task' &&
+                                    familyHasStaffingPass(details, f.id, slot.id)
+                                  }
+                                >
                                   {familyLabel(state, f.id)}
+                                  {f.id !== slot.familyId &&
+                                  shift.kind !== 'task' &&
+                                  familyHasStaffingPass(details, f.id, slot.id)
+                                    ? ' · har redan ett pass'
+                                    : ''}
                                   {f.exempt ? ' · undantagen' : ''}
                                   {!f.active
                                     ? ' · inaktiv'
