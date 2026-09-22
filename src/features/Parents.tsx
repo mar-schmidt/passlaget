@@ -1,7 +1,9 @@
 import { attendanceEligible, familyHasStaffingPass } from '../domain/logic';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
   CalendarDays,
   Check,
   Download,
@@ -101,6 +103,8 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
   const [calendar, setCalendar] = useState<CalendarEvent | null>(null);
   const [loadingCalendar, setLoadingCalendar] = useState('');
   const [contactOpen, setContactOpen] = useState(false);
+  const familyList = useRef<HTMLDivElement>(null);
+  const [familyScroll, setFamilyScroll] = useState({ overflow: false, moreBelow: false });
   const family = state.families.find((f) => f.id === familyId && f.active);
   const now = Date.now();
   const today = stockholmsDate(new Date(now).toISOString());
@@ -147,6 +151,33 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
         .toLocaleLowerCase('sv')
         .includes(query.trim().toLocaleLowerCase('sv')),
   );
+  function updateFamilyScroll() {
+    const list = familyList.current;
+    if (!list) return;
+    const overflow = list.scrollHeight > list.clientHeight + 1;
+    const moreBelow = list.scrollHeight - list.clientHeight - list.scrollTop > 1;
+    setFamilyScroll((previous) =>
+      previous.overflow === overflow && previous.moreBelow === moreBelow
+        ? previous
+        : { overflow, moreBelow },
+    );
+  }
+  useEffect(() => {
+    if (familyList.current) familyList.current.scrollTop = 0;
+  }, [query, showChooser]);
+  useEffect(() => {
+    const list = familyList.current;
+    if (!list) return;
+    updateFamilyScroll();
+    const observer =
+      typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updateFamilyScroll);
+    observer?.observe(list);
+    window.addEventListener('resize', updateFamilyScroll);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updateFamilyScroll);
+    };
+  }, [query, showChooser, state.families, state.children]);
   const roleGroups = Array.from(
     (details?.shifts || [])
       .slice()
@@ -226,14 +257,36 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <div className="md-family-options" aria-label="Välj familj">
-            {familyOptions.map((item) => (
-              <button key={item.id} type="button" onClick={() => chooseFamily(item.id)}>
-                <span>{familyLabel(state, item.id)}</span>
-                <ArrowRight size={18} aria-hidden="true" />
-              </button>
-            ))}
+          <div className={`md-family-list ${familyScroll.moreBelow ? 'md-more-below' : ''}`}>
+            <div
+              className="md-family-options"
+              ref={familyList}
+              onScroll={updateFamilyScroll}
+              role="region"
+              aria-label="Välj familj"
+              tabIndex={0}
+              aria-describedby={familyScroll.overflow ? 'family-scroll-hint' : undefined}
+            >
+              {familyOptions.map((item) => (
+                <button key={item.id} type="button" onClick={() => chooseFamily(item.id)}>
+                  <span>{familyLabel(state, item.id)}</span>
+                  <ArrowRight size={18} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
           </div>
+          {familyScroll.overflow && (
+            <p className="md-family-scroll-hint" id="family-scroll-hint">
+              {familyScroll.moreBelow ? (
+                <ArrowDown size={17} aria-hidden="true" />
+              ) : (
+                <ArrowUp size={17} aria-hidden="true" />
+              )}
+              {familyScroll.moreBelow
+                ? 'Fler spelare finns längre ned – skrolla i listan.'
+                : 'Du är längst ned i listan. Skrolla upp för fler spelare.'}
+            </p>
+          )}
           {familyOptions.length === 0 && (
             <p className="md-empty-copy" role="status">
               {state.families.some((item) => item.active)
