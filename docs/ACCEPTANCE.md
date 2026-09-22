@@ -82,3 +82,11 @@ Webbläsarens administratörsstyrda åtkomstkontroll gick inte att verifiera und
 - Stationernas gemensamma svar och varje förälders individuella svar bevaras och kan ändras utan ny bekräftelse. Kopiering rensar bokningar och svar.
 - Förberedelser kan ha deadline före evenemanget. De undantas från dubbelbokningskontroll och passräkning, även efter genomförande. Deadline flyttas med svensk tidszon vid kopiering och stöds i säkerhetskopiering, kalenderexport och mejl.
 - Mobilens faktiska kalenderappar och visuell webbläsargranskning har samma tidigare dokumenterade begränsning. Det nya föräldraflödet har verifierats med automatiserade komponenttester.
+
+## Samtidig evenemangsredigering
+
+- Öppna ett utkast, kör en SportAdmin-synkning eller ändra ett annat evenemang och spara sedan utkastet. Båda uppdateringarna ska behållas.
+- Bekräfta en plats medan admin ändrar beskrivningen: bekräftelsen och den valda vuxna ska finnas kvar. Om admin samtidigt byter familj på just den platsen ska sparandet stoppas.
+- Två administratörer ändrar olika fält: båda ändringarna behålls. Ändrar de samma fält till olika värden ska den andra få ett begripligt konfliktmeddelande och behålla sina osparade formulärvärden.
+- En databasändring precis under sparandet ska kunna hanteras med en ny jämförelse, utan att dubbla utskick skapas eller SportAdmin-kopplingen skrivs över.
+- Aktuella kallelsesvar, aktiva familjer och gränsen på ett bemanningspass gäller även efter omläsning.

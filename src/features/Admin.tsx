@@ -1,3 +1,4 @@
+import { prepareEventCommand } from '../domain/event-concurrency';
 import PlayerSync from './PlayerSync';
 import SportAdminPanel, { type Integration } from './SportAdmin';
 import { attendanceEligible, attendanceWarnings } from '../domain/logic';
@@ -608,6 +609,9 @@ function EventEditor({
   const [explanations, setExplanations] = useState<string[]>([]);
   const [tab, setTab] = useState<'details' | 'shifts'>(initial.draft.title ? 'shifts' : 'details');
   const baseVersion = useRef(state.version);
+  const baseEvent = useRef<PortalEvent | null>(
+    structuredClone(state.events.find((e) => e.id === initial.id) ?? null),
+  );
   const [sportadmin, setSportadmin] = useState<Integration>();
   const [sportadminError, setSportadminError] = useState('');
   const [sportadminLoading, setSportadminLoading] = useState(!isDemo);
@@ -711,30 +715,33 @@ function EventEditor({
     setError('');
     setProblems([]);
     try {
-      if (state.version !== baseVersion.current)
-        throw new Error(
-          'Uppgifterna har ändrats sedan du öppnade planeringen. Stäng och öppna den igen för att få senaste versionen.',
-        );
       if (!details.title.trim())
         throw new Error('Ange ett namn på evenemanget under Grunduppgifter.');
-      let next = await mutate(
-        {
-          type: 'save_event',
-          event,
-          ...(linkChanged ? { sportadminActivityId: activityId } : {}),
-        },
-        baseVersion.current,
-      );
+      const command: PortalCommand = {
+        type: 'save_event',
+        event,
+        baseEvent: baseEvent.current,
+        ...(linkChanged
+          ? { sportadminActivityId: activityId, expectedSportadminActivityId: savedActivityId }
+          : {}),
+      };
+      prepareEventCommand(state, command, baseVersion.current);
+      let next = await mutate(command, baseVersion.current);
       setSavedActivityId(activityId);
       baseVersion.current = next.version;
       let updated = next.events.find((e) => e.id === event.id)!;
+      baseEvent.current = structuredClone(updated);
       setEvent(structuredClone(updated));
       setSaved(JSON.stringify(updated));
       if (mode === 'auto') {
         setExplanations(autoPlan(next, event.id).notices);
-        next = await mutate({ type: 'auto_plan', eventId: event.id }, baseVersion.current);
+        next = await mutate(
+          { type: 'auto_plan', eventId: event.id, baseEvent: baseEvent.current! },
+          baseVersion.current,
+        );
         baseVersion.current = next.version;
         updated = next.events.find((e) => e.id === event.id)!;
+        baseEvent.current = structuredClone(updated);
         setEvent(structuredClone(updated));
         setSaved(JSON.stringify(updated));
         const vacant = eventSlots(updated).filter((s) => !s.familyId).length;
@@ -749,9 +756,13 @@ function EventEditor({
           setProblems(issues);
           throw new Error('Utkastet är sparat. Åtgärda nedanstående innan du publicerar.');
         }
-        next = await mutate({ type: 'publish_event', eventId: event.id }, baseVersion.current);
+        next = await mutate(
+          { type: 'publish_event', eventId: event.id, baseEvent: baseEvent.current! },
+          baseVersion.current,
+        );
         baseVersion.current = next.version;
         updated = next.events.find((e) => e.id === event.id)!;
+        baseEvent.current = structuredClone(updated);
         setEvent(structuredClone(updated));
         setSaved(JSON.stringify(updated));
         tell('Schemat är publicerat och synligt för familjerna.');

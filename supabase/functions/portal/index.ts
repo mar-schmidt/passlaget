@@ -1,3 +1,10 @@
+import {
+  prepareEventCommand,
+  hasEventBase,
+  EventConflictError,
+  staleDataMessage,
+  eventBusyMessage,
+} from '../../../src/domain/event-concurrency.ts';
 import { sportadminAction } from '../_shared/sportadmin.ts';
 import { createClient } from '@supabase/supabase-js';
 import { applyCommand, publicState, DomainError } from '../../../src/domain/logic.ts';
@@ -56,12 +63,7 @@ function requireMail() {
 async function rpc(op: string, args: Record<string, unknown> = {}): Promise<any> {
   const { data, error } = await db.rpc('portal_backend', { p_op: op, p_args: args });
   if (error) {
-    if (error.code === '40001')
-      throw new HttpError(
-        409,
-        'Schemat har ändrats. Hämta senaste uppgifterna och försök igen.',
-        'conflict',
-      );
+    if (error.code === '40001') throw new HttpError(409, staleDataMessage, 'conflict');
     if (error.code === 'P0002') throw new HttpError(404, 'Uppgiften finns inte.', 'not_found');
     if (error.code === '22023' || error.code === '23505')
       throw new HttpError(400, 'Åtgärden är inte längre giltig.');
@@ -425,8 +427,7 @@ export async function handle(request: Request): Promise<Response> {
           60,
         );
       if (command.type === 'remind_confirmation') requireMail();
-      if (!Number.isInteger(body.expectedVersion) || body.expectedVersion !== state.version)
-        throw new HttpError(409, 'Schemat har ändrats. Hämta senaste uppgifterna.', 'conflict');
+      prepareEventCommand(state, command, body.expectedVersion);
       if (command.type === 'save_event' && Object.hasOwn(command, 'sportadminActivityId')) {
         await rateLimit(request, 'sportadmin_team', state.team.id, 30, 60);
         const result = await sportadminAction(
@@ -435,6 +436,12 @@ export async function handle(request: Request): Promise<Response> {
             event: command.event,
             activityId: command.sportadminActivityId,
             expectedVersion: body.expectedVersion,
+            ...(hasEventBase(command)
+              ? {
+                  baseEvent: command.baseEvent,
+                  expectedSportadminActivityId: command.expectedSportadminActivityId,
+                }
+              : {}),
           },
           state,
           sportRpc,
@@ -444,35 +451,61 @@ export async function handle(request: Request): Promise<Response> {
           throw new HttpError(503, 'Evenemanget kunde inte sparas. Försök igen.');
         return response({ state: result.state });
       }
-      const next = applyCommand(state, command, isPublic ? 'public' : 'admin');
-      if (next.team.id !== state.team.id || next.team.slug !== state.team.slug)
-        throw new HttpError(400, 'Lagets id och adress kan inte ändras.');
-      if (next.version !== state.version) {
-        const jobs = mailEnabled
-          ? [
-              ...(await buildMailJobs(
-                state,
-                next,
-                ((await rpc('subscriptions', { team_id: state.team.id })) as Subscription[]).filter(
-                  (s) =>
-                    !next.adults.some(
-                      (a) => a.active && a.email === s.email && a.familyIds.includes(s.family_id),
-                    ),
-                ),
-              )),
-              ...(await buildContactMailJobs(state, next, command)),
-            ]
-          : [];
-        if (command.type === 'remind_confirmation' && !jobs.some((j) => j.payload.confirmationOnly))
-          throw new HttpError(400, 'Det finns ingen mejladress att påminna för detta pass.');
-        await rpc('commit', {
-          team_id: state.team.id,
-          expected_version: state.version,
-          state: next,
-          jobs,
-        });
+      let latest = state;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const prepared = prepareEventCommand(latest, command, body.expectedVersion);
+        const next = applyCommand(latest, prepared, isPublic ? 'public' : 'admin');
+        if (next.team.id !== latest.team.id || next.team.slug !== latest.team.slug)
+          throw new HttpError(400, 'Lagets id och adress kan inte ändras.');
+        if (next.version !== latest.version) {
+          const jobs = mailEnabled
+            ? [
+                ...(await buildMailJobs(
+                  latest,
+                  next,
+                  (
+                    (await rpc('subscriptions', { team_id: latest.team.id })) as Subscription[]
+                  ).filter(
+                    (s) =>
+                      !next.adults.some(
+                        (a) => a.active && a.email === s.email && a.familyIds.includes(s.family_id),
+                      ),
+                  ),
+                )),
+                ...(await buildContactMailJobs(latest, next, prepared)),
+              ]
+            : [];
+          if (
+            command.type === 'remind_confirmation' &&
+            !jobs.some((j) => j.payload.confirmationOnly)
+          )
+            throw new HttpError(400, 'Det finns ingen mejladress att påminna för detta pass.');
+          try {
+            await rpc('commit', {
+              team_id: latest.team.id,
+              expected_version: latest.version,
+              state: next,
+              jobs,
+            });
+          } catch (error) {
+            if (hasEventBase(command) && error instanceof HttpError && error.status === 409) {
+              if (attempt < 2) {
+                latest = await loadTeam(state.team.slug);
+                continue;
+              }
+              throw new HttpError(
+                409,
+                command.type === 'save_event'
+                  ? eventBusyMessage
+                  : 'Utkastet är sparat, men evenemanget uppdateras samtidigt. Vänta en stund och försök fördela eller publicera igen.',
+                'event_busy',
+              );
+            }
+            throw error;
+          }
+        }
+        return response({ state: isPublic ? publicState(next) : next });
       }
-      return response({ state: isPublic ? publicState(next) : next });
     }
     if (action === 'subscribe') {
       const email = normalizeEmail(body.email);
@@ -542,6 +575,8 @@ export async function handle(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof HttpError)
       return response({ error: error.message, code: error.code }, error.status);
+    if (error instanceof EventConflictError)
+      return response({ error: error.message, code: 'event_conflict' }, 409);
     if (error instanceof DomainError)
       return response(
         { error: error.message, code: error.code === 409 ? 'conflict' : 'invalid_command' },

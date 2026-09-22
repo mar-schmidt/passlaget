@@ -392,3 +392,109 @@ test('conflicting identity save cannot partially commit the mapping or overwrite
   expect(f.state.children.find((c) => c.id === child.id)?.source).toBe('manual');
   expect(f.calls.at(-1)).toBe('release');
 });
+
+test('scoped combined save retries a racing sync and preserves unrelated edits', async () => {
+  const f = fixture();
+  const baseEvent = structuredClone(f.state.events[0]);
+  const event = structuredClone(baseEvent);
+  event.draft.description = 'My edit';
+  const expectedVersion = f.state.version;
+  f.state.version++;
+  f.state.events[1].draft.title = 'Unrelated edit';
+  f.conflict();
+  const result = await sportadminAction(
+    {
+      operation: 'save_event',
+      event,
+      baseEvent,
+      activityId: null,
+      expectedSportadminActivityId: null,
+      expectedVersion,
+    },
+    f.state,
+    f.rpc,
+    f.load,
+  );
+  expect(result!.state.events[0].draft.description).toBe('My edit');
+  expect(result!.state.events[1].draft.title).toBe('Unrelated edit');
+  expect(f.calls.filter((c) => c === 'finish')).toHaveLength(2);
+});
+
+test('scoped combined save detects an actual edit after the upstream read', async () => {
+  const f = fixture();
+  const baseEvent = structuredClone(f.state.events[0]);
+  const event = structuredClone(baseEvent);
+  event.draft.title = 'My title';
+  const expectedVersion = f.state.version;
+  const load = async () => {
+    const latest = structuredClone(f.state);
+    latest.version++;
+    latest.events[0].draft.title = 'Other title';
+    return latest;
+  };
+  await expect(
+    sportadminAction(
+      {
+        operation: 'save_event',
+        event,
+        baseEvent,
+        activityId: null,
+        expectedSportadminActivityId: null,
+        expectedVersion,
+      },
+      f.state,
+      f.rpc,
+      load,
+    ),
+  ).rejects.toThrow(/Evenemangets namn.*inte sparade/);
+  expect(f.calls).not.toContain('finish');
+  expect(f.calls.at(-1)).toBe('release');
+});
+
+test('scoped combined save cannot overwrite someone else’s SportAdmin link', async () => {
+  const f = fixture();
+  const baseEvent = structuredClone(f.state.events[0]);
+  f.data.links[baseEvent.id] = { ...activity, id: 99 };
+  await expect(
+    sportadminAction(
+      {
+        operation: 'save_event',
+        event: baseEvent,
+        baseEvent,
+        activityId: null,
+        expectedSportadminActivityId: 7,
+        expectedVersion: f.state.version,
+      },
+      f.state,
+      f.rpc,
+      f.load,
+    ),
+  ).rejects.toThrow(/Kopplingen till SportAdmin har ändrats/);
+  expect(f.data.links[baseEvent.id].id).toBe(99);
+  expect(f.calls).not.toContain('finish');
+  expect(f.calls.at(-1)).toBe('release');
+});
+
+test('scoped save uses fresh calling eligibility even with an old team version', async () => {
+  const f = fixture();
+  f.data.activities = [activity];
+  vi.spyOn(SportAdmin.prototype, 'participants').mockResolvedValue([]);
+  const event = newEvent(f.state);
+  event.draft.shifts[0].slots[0].familyId = f.state.children[0].familyId;
+  await expect(
+    sportadminAction(
+      {
+        operation: 'save_event',
+        event,
+        baseEvent: null,
+        activityId: 7,
+        expectedSportadminActivityId: null,
+        expectedVersion: f.state.version - 1,
+      },
+      f.state,
+      f.rpc,
+      f.load,
+    ),
+  ).rejects.toThrow(/ja-svar/);
+  expect(f.calls).not.toContain('finish');
+});

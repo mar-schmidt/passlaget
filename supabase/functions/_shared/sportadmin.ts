@@ -1,3 +1,8 @@
+import {
+  prepareEventCommand,
+  EventConflictError,
+  eventBusyMessage,
+} from '../../../src/domain/event-concurrency.ts';
 import { applyCommand, attendanceEligible, DomainError } from '../../../src/domain/logic.ts';
 import type {
   InventoryIdentityPair,
@@ -104,17 +109,19 @@ export async function sportadminAction(
 ) {
   const op = body.operation;
   const savingEvent = op === 'save_event';
+  const scopedSave = savingEvent && Object.hasOwn(body, 'baseEvent');
+  const saveCommand = () => ({
+    type: 'save_event' as const,
+    event: body.event,
+    ...(scopedSave ? { baseEvent: body.baseEvent } : {}),
+  });
   const resolvingIdentity = op === 'resolve_inventory_match';
   if (
     resolvingIdentity &&
     (!Number.isInteger(body.expectedVersion) || body.expectedVersion !== state.version)
   )
     throw new HttpError(409, 'Spelarlistan har ändrats. Uppdatera och granska matchningen igen.');
-  if (
-    savingEvent &&
-    (!Number.isInteger(body.expectedVersion) || body.expectedVersion !== state.version)
-  )
-    throw new HttpError(409, 'Schemat har ändrats. Öppna evenemanget igen.');
+  if (savingEvent) prepareEventCommand(state, saveCommand(), body.expectedVersion);
   const eventId = savingEvent ? body.event?.id : body.eventId;
   if (
     savingEvent &&
@@ -152,8 +159,9 @@ export async function sportadminAction(
   async function finish() {
     for (let attempt = 0; attempt < 3; attempt++) {
       const latest = await load(state.team.slug);
-      if (savingEvent && latest.version !== body.expectedVersion)
-        throw new HttpError(409, 'Schemat har ändrats. Öppna evenemanget igen.');
+      const prepared = savingEvent
+        ? prepareEventCommand(latest, saveCommand(), body.expectedVersion)
+        : undefined;
       if (resolvingIdentity && latest.version !== body.expectedVersion)
         throw new HttpError(
           409,
@@ -199,10 +207,7 @@ export async function sportadminAction(
       }
       next = applyAttendance(next, c);
       if (savingEvent) {
-        next = applyAttendance(
-          applyCommand(next, { type: 'save_event', event: body.event }, 'admin'),
-          c,
-        );
+        next = applyAttendance(applyCommand(next, prepared!, 'admin'), c);
         const savedEvent = next.events.find((e) => e.id === eventId)!;
         const previous = latest.events.find((e) => e.id === eventId);
         for (const shift of savedEvent.draft.shifts)
@@ -233,17 +238,36 @@ export async function sportadminAction(
         return { integration: connectionStatus(c), state: next };
       } catch (error) {
         if (
-          savingEvent ||
+          (savingEvent && !scopedSave) ||
           resolvingIdentity ||
           !(error instanceof HttpError && error.status === 409) ||
           attempt === 2
-        )
+        ) {
+          if (scopedSave && error instanceof HttpError && error.status === 409)
+            throw new HttpError(409, eventBusyMessage, 'event_busy');
           throw error;
+        }
       }
     }
     throw new HttpError(409, 'Schemat uppdateras. Försök igen.');
   }
   try {
+    if (scopedSave) {
+      if (
+        body.expectedSportadminActivityId !== null &&
+        !Number.isInteger(body.expectedSportadminActivityId)
+      )
+        throw new HttpError(
+          400,
+          'Underlaget för SportAdmin-kopplingen saknas. Öppna evenemanget igen.',
+        );
+      const currentActivity = c.links?.[eventId]?.id ?? null;
+      if (
+        currentActivity !== body.expectedSportadminActivityId &&
+        currentActivity !== body.activityId
+      )
+        throw new EventConflictError('Kopplingen till SportAdmin har ändrats av någon annan.');
+    }
     if (
       resolvingIdentity &&
       (!c.inventoryEnabled ||

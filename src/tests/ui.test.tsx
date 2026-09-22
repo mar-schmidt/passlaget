@@ -4,6 +4,7 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import userEvent from '@testing-library/user-event';
 import type { PortalCommand, PortalEvent, PortalState } from '../domain/model';
 import { applyCommand, publicState } from '../domain/logic';
+import { prepareEventCommand } from '../domain/event-concurrency';
 import App from '../App';
 import Admin from '../features/Admin';
 import Parents from '../features/Parents';
@@ -195,7 +196,7 @@ beforeEach(() => {
     structuredClone(admin ? server : projected(server)),
   );
   client.runCommand.mockImplementation(async (command: PortalCommand, version: number) => {
-    if (version !== server.version) throw new Error('Testserver: versionskonflikt');
+    command = prepareEventCommand(server, command, version);
     const isPublic = command.type === 'confirm' || command.type === 'request_change';
     server = applyCommand(server, command, isPublic ? 'public' : 'admin');
     // Match the real backend contract even if a session is present.
@@ -282,6 +283,9 @@ describe('planning forms', () => {
       expect(screen.getByRole('alert').textContent).toMatch(/ändrat|ändrats|öppna|senaste/i),
     );
     expect(mutate).not.toHaveBeenCalled();
+    expect((title as HTMLInputElement).value).toBe('Min lokala ändring');
+    expect(screen.getByRole('alert').textContent).toContain('Evenemangets namn');
+    expect(screen.getByRole('alert').textContent).toContain('inte sparade');
   });
 
   it('disables editing until an in-flight save finishes', async () => {
@@ -1102,4 +1106,58 @@ it('confirmation for a synced parent uses register contacts without asking them 
   await user.click(within(dialog).getByRole('button', { name: 'Bekräfta passet' }));
   await waitFor(() => expect(mutate).toHaveBeenCalledTimes(1));
   expect(server.adults[0].email).toBe('synced@example.test');
+});
+
+it('saves an open event after the loaded team version changes for another event', async () => {
+  const user = userEvent.setup();
+  const mutate = vi.fn(async (command: PortalCommand, expectedVersion?: number) =>
+    applyCommand(server, prepareEventCommand(server, command, expectedVersion!), 'admin'),
+  );
+  const props = { page: 'evenemang' as const, navigate: vi.fn(), mutate, tell: vi.fn() };
+  const view = render(<Admin state={server} {...props} />);
+  const article = screen.getByRole('heading', { name: 'Öppet testsammandrag' }).closest('article')!;
+  await user.click(within(article).getByRole('button', { name: 'Öppna planering' }));
+  const title = screen.getByRole('textbox', { name: 'Evenemangets namn' });
+  await user.clear(title);
+  await user.type(title, 'Mitt nya namn');
+  server = structuredClone(server);
+  server.version++;
+  const other = structuredClone(server.events[0]);
+  other.id = 'another-event';
+  other.draft.title = 'Annan match';
+  other.draft.shifts = [];
+  delete other.published;
+  server.events.push(other);
+  view.rerender(<Admin state={server} {...props} />);
+  await user.click(screen.getByRole('button', { name: 'Spara utkast' }));
+  await waitFor(() => expect(props.tell).toHaveBeenCalledWith('Utkastet är sparat.'));
+  expect(mutate.mock.calls[0][0]).toMatchObject({
+    type: 'save_event',
+    baseEvent: { id: 'event-one', draft: { title: 'Öppet testsammandrag' } },
+  });
+  expect((title as HTMLInputElement).value).toBe('Mitt nya namn');
+});
+
+it('allows App to submit an event snapshot after a background server change', async () => {
+  const user = userEvent.setup();
+  render(<App />);
+  await screen.findByRole('button', { name: 'Administration' });
+  await user.click(screen.getByRole('button', { name: 'Administration' }));
+  await screen.findByRole('button', { name: 'Nytt evenemang' });
+  const article = screen.getByRole('heading', { name: 'Öppet testsammandrag' }).closest('article')!;
+  await user.click(within(article).getByRole('button', { name: 'Öppna planering' }));
+  const title = screen.getByRole('textbox', { name: 'Evenemangets namn' });
+  await user.clear(title);
+  await user.type(title, 'Sparas trots synk');
+  server = structuredClone(server);
+  server.version++;
+  server.events[0].attendance = {
+    title: 'Match',
+    checkedAt: '2030-06-01T12:00:00Z',
+    eligibleChildIds: [],
+  };
+  await user.click(screen.getByRole('button', { name: 'Spara utkast' }));
+  await screen.findByText('Utkastet är sparat.');
+  expect(server.events[0].draft.title).toBe('Sparas trots synk');
+  expect(server.events[0].attendance?.checkedAt).toBe('2030-06-01T12:00:00Z');
 });

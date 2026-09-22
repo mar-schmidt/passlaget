@@ -1,3 +1,4 @@
+import { prepareEventCommand, staleDataMessage } from './domain/event-concurrency';
 import { createClient } from '@supabase/supabase-js';
 import { applyCommand, publicState } from './domain/logic';
 import { demoState } from './domain/demo';
@@ -51,11 +52,12 @@ export async function api<T = Record<string, unknown>>(body: Record<string, unkn
   });
   const result = await response.json().catch(() => ({ error: 'Servern kunde inte svara.' }));
   if (!response.ok)
-    throw new Error(
-      result.error ||
-        (response.status === 409
-          ? 'Schemat har ändrats. Hämta den senaste versionen och försök igen.'
-          : 'Åtgärden kunde inte sparas. Försök igen.'),
+    throw Object.assign(
+      new Error(
+        result.error ||
+          (response.status === 409 ? staleDataMessage : 'Åtgärden kunde inte sparas. Försök igen.'),
+      ),
+      { code: result.code },
     );
   return result;
 }
@@ -83,9 +85,8 @@ export async function runCommand(
 ): Promise<PortalState> {
   if (isDemo) {
     const original = demoRead();
-    if (original.version !== expectedVersion)
-      throw new Error('Demot har ändrats i en annan flik. Uppdatera sidan.');
-    const next = applyCommand(original, command, admin ? 'admin' : 'public');
+    const prepared = prepareEventCommand(original, command, expectedVersion);
+    const next = applyCommand(original, prepared, admin ? 'admin' : 'public');
     localStorage.setItem(storageKey, JSON.stringify(next));
     return fullShape(admin ? next : (publicState(next) as PortalState));
   }

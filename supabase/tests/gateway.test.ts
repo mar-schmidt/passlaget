@@ -416,3 +416,91 @@ it('accepts public self booking atomically and rejects a stale competing booking
   expect((await handle(request(body))).status).toBe(409);
   expect(calls('commit')).toHaveLength(1);
 });
+
+describe('event-scoped saving', () => {
+  function edit() {
+    member = true;
+    const baseEvent = structuredClone(current.events[0]);
+    const event = structuredClone(baseEvent);
+    event.draft.description = 'My updated description';
+    return {
+      action: 'command',
+      teamSlug: current.team.slug,
+      expectedVersion: current.version,
+      command: { type: 'save_event', event, baseEvent },
+    };
+  }
+  const send = (body: Record<string, unknown>) =>
+    handle(request(body, { Authorization: 'Bearer checked' }));
+  it('saves against latest team data and retains changes in another event', async () => {
+    const body = edit();
+    current.version++;
+    current.events[1].draft.title = 'Concurrent event edit';
+    const response = await send(body);
+    expect(response.status).toBe(200);
+    expect(current.events[0].draft.description).toBe('My updated description');
+    expect(current.events[1].draft.title).toBe('Concurrent event edit');
+    expect(calls('commit')[0][1].p_args.expected_version).toBe(body.expectedVersion + 1);
+    expect(calls('commit')[0][1].p_args.jobs).toEqual([]);
+  });
+  it('retries a database race against fresh data without losing an intervening change', async () => {
+    const body = edit();
+    const previous = mock.rpc.getMockImplementation()!;
+    let first = true;
+    mock.rpc.mockImplementation(async (name, args) => {
+      if (args.p_op === 'commit' && first) {
+        first = false;
+        current = structuredClone(current);
+        current.version++;
+        current.events[1].draft.title = 'Concurrent event edit';
+        return { data: null, error: { code: '40001' } };
+      }
+      return previous(name, args);
+    });
+    expect((await send(body)).status).toBe(200);
+    expect(current.events[0].draft.description).toBe('My updated description');
+    expect(current.events[1].draft.title).toBe('Concurrent event edit');
+    expect(calls('commit')).toHaveLength(2);
+  });
+  it('stops a retry if someone edits the same field during the commit', async () => {
+    const body = edit();
+    const previous = mock.rpc.getMockImplementation()!;
+    mock.rpc.mockImplementation(async (name, args) => {
+      if (args.p_op === 'commit') {
+        current = structuredClone(current);
+        current.version++;
+        current.events[0].draft.description = 'Their description';
+        return { data: null, error: { code: '40001' } };
+      }
+      return previous(name, args);
+    });
+    const response = await send(body);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: 'event_conflict',
+      error: expect.stringMatching(/Beskrivningen.*inte sparade/),
+    });
+    expect(current.events[0].draft.description).toBe('Their description');
+    expect(calls('commit')).toHaveLength(1);
+  });
+  it('bounds retries and explains that the form can be saved again', async () => {
+    const body = edit();
+    const previous = mock.rpc.getMockImplementation()!;
+    mock.rpc.mockImplementation(async (name, args) =>
+      args.p_op === 'commit' ? { data: null, error: { code: '40001' } } : previous(name, args),
+    );
+    const response = await send(body);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      code: 'event_busy',
+      error: expect.stringContaining('Spara utkast igen'),
+    });
+    expect(calls('commit')).toHaveLength(3);
+  });
+  it('still requires admin membership for a save with a base snapshot', async () => {
+    const body = edit();
+    member = false;
+    expect((await send(body)).status).toBe(403);
+    expect(calls('commit')).toHaveLength(0);
+  });
+});

@@ -163,10 +163,16 @@ export interface PublicState {
 export type PortalCommand =
   | { type: 'save_family'; family: Family; children: Child[]; adults: Adult[] }
   | { type: 'save_role'; role: Role }
-  | { type: 'save_event'; event: PortalEvent; sportadminActivityId?: number | null }
+  | {
+      type: 'save_event';
+      event: PortalEvent;
+      baseEvent?: PortalEvent | null;
+      sportadminActivityId?: number | null;
+      expectedSportadminActivityId?: number | null;
+    }
   | { type: 'copy_event'; eventId: string; newId: string; startDate: string }
-  | { type: 'auto_plan'; eventId: string }
-  | { type: 'publish_event'; eventId: string }
+  | { type: 'auto_plan'; eventId: string; baseEvent?: PortalEvent }
+  | { type: 'publish_event'; eventId: string; baseEvent?: PortalEvent }
   | { type: 'cancel_event'; eventId: string }
   | {
       type: 'confirm';

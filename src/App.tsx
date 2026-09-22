@@ -1,3 +1,4 @@
+import { hasEventBase, staleDataMessage } from './domain/event-concurrency';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -146,10 +147,12 @@ export default function App() {
   }
   async function mutate(command: PortalCommand, expectedVersion?: number) {
     if (!stateRef.current) throw new Error('Vänta tills uppgifterna har hämtats.');
-    if (expectedVersion !== undefined && stateRef.current.version !== expectedVersion)
-      throw new Error(
-        'Uppgifterna har ändrats sedan redigeringen öppnades. Öppna den igen för att få senaste versionen.',
-      );
+    if (
+      !hasEventBase(command) &&
+      expectedVersion !== undefined &&
+      stateRef.current.version !== expectedVersion
+    )
+      throw new Error(staleDataMessage);
     ++readSequence.current;
     let next = await runCommand(command, stateRef.current.version, admin);
     if (
