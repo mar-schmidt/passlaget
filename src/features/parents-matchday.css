@@ -237,6 +237,54 @@
 .matchday-page .md-family-agenda {
   border-bottom: 1px solid var(--md-line);
 }
+.matchday-page .md-open-bookings {
+  margin-top: 20px;
+  border: 1px solid var(--md-line);
+  border-radius: 4px;
+}
+.matchday-page .md-open-bookings > summary {
+  padding: 14px 16px;
+  cursor: pointer;
+  color: var(--md-accent);
+  font-weight: 600;
+}
+.matchday-page .md-open-bookings > summary span {
+  display: inline-block;
+  margin-left: 12px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--md-muted);
+}
+.matchday-page .md-booking-events {
+  padding: 0 16px 16px;
+}
+.matchday-page .md-booking-event {
+  margin-top: 22px;
+}
+.matchday-page .md-booking-event h3 {
+  font-size: 19px;
+}
+.matchday-page .md-booking-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--md-line);
+}
+.matchday-page .md-booking-choice > div {
+  display: grid;
+  gap: 4px;
+}
+.matchday-page .md-booking-choice span,
+.matchday-page .md-booking-choice small {
+  color: var(--md-muted);
+  font-size: 13px;
+}
+.matchday-page .md-booking-choice:last-child {
+  border-bottom: 0;
+}
 .matchday-page .md-family-agenda > summary {
   padding: 12px 2px;
   cursor: pointer;

@@ -131,12 +131,41 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
       new Date(item.shift.endsAt).getTime() > now,
   );
   const pending = upcomingAssignments.filter((item) => item.slot.status === 'pending').length;
+  const familyEventIds = new Set(allAssignments.map((item) => item.event.id));
+  const visibleEvents = family
+    ? published.filter((item) => familyEventIds.has(item.id))
+    : published;
+  const openBookings = family
+    ? published
+        .filter(
+          (item) =>
+            !item.cancelled &&
+            item.published!.bookingMode === 'self' &&
+            !familyEventIds.has(item.id),
+        )
+        .map((item) => ({
+          event: item,
+          shifts: item
+            .published!.shifts.filter(
+              (shift) => !shift.externalTeam && Date.parse(shift.startsAt) > now,
+            )
+            .map((shift) => ({
+              shift,
+              slots: shift.slots.filter(
+                (slot) => !slot.familyId && !slot.locked && slot.status === 'pending',
+              ),
+            }))
+            .filter((item) => item.slots.length > 0)
+            .sort((a, b) => Date.parse(a.shift.startsAt) - Date.parse(b.shift.startsAt)),
+        }))
+        .filter((item) => item.shifts.length > 0)
+    : [];
   const defaultEvent =
     upcomingAssignments[0]?.event ||
-    published.find((event) => !event.cancelled && event.published!.endDate >= today) ||
-    published.filter((event) => !event.cancelled).at(-1) ||
-    published.at(-1);
-  const event = published.find((item) => item.id === eventId) || defaultEvent;
+    visibleEvents.find((event) => !event.cancelled && event.published!.endDate >= today) ||
+    visibleEvents.filter((event) => !event.cancelled).at(-1) ||
+    visibleEvents.at(-1);
+  const event = visibleEvents.find((item) => item.id === eventId) || defaultEvent;
   const details = event?.published;
   const familyHasPass = !!family && familyHasStaffingPass(details, family.id);
   const ownAssignments = allAssignments.filter((item) => item.event.id === event?.id);
@@ -377,7 +406,74 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
               </ul>
             </details>
           )}
-          {published.length > 1 && (
+          {family && openBookings.length > 0 && (
+            <details className="md-open-bookings">
+              <summary>
+                Boka ett ledigt uppdrag <span>{openBookings.length} evenemang</span>
+              </summary>
+              <div className="md-booking-events" role="region" aria-label="Lediga uppdrag att boka">
+                <p className="md-muted">
+                  Här kan ni själva boka ett uppdrag. När ni har bokat visas evenemanget bland
+                  familjens egna uppdrag.
+                </p>
+                {openBookings.map(({ event: bookable, shifts }) => (
+                  <article className="md-booking-event" key={bookable.id}>
+                    <h3>{bookable.published!.title}</h3>
+                    <p className="md-muted">{bookable.published!.location}</p>
+                    {bookable.published!.description && (
+                      <p className="md-description">{bookable.published!.description}</p>
+                    )}
+                    {!attendanceEligible(state, bookable, family.id) && (
+                      <p className="md-request-note">
+                        Ett barn i familjen behöver vara anmält i SportAdmin för att ni ska kunna
+                        boka. Kontakta lagföräldern om ni redan har svarat ja.
+                      </p>
+                    )}
+                    {shifts.map(({ shift, slots }) => (
+                      <div className="md-booking-choice" key={shift.id}>
+                        <div>
+                          <strong>{shift.title || shift.roleName}</strong>
+                          {shift.group && <span>{shift.group}</span>}
+                          <span>
+                            {shift.kind !== 'task' && (
+                              <>
+                                {dateLabel(shift.startsAt, {
+                                  weekday: 'short',
+                                  day: 'numeric',
+                                  month: 'short',
+                                })}{' '}
+                                ·{' '}
+                              </>
+                            )}
+                            {timeRange(shift)}
+                          </span>
+                          <small>
+                            {slots.length} {slots.length === 1 ? 'ledig plats' : 'lediga platser'}
+                          </small>
+                        </div>
+                        <button
+                          type="button"
+                          className="button secondary"
+                          disabled={!attendanceEligible(state, bookable, family.id)}
+                          onClick={() =>
+                            setConfirm({
+                              event: bookable,
+                              shift,
+                              slot: { ...slots[0], familyId: family.id },
+                              booking: true,
+                            })
+                          }
+                        >
+                          Boka platsen
+                        </button>
+                      </div>
+                    ))}
+                  </article>
+                ))}
+              </div>
+            </details>
+          )}
+          {visibleEvents.length > 1 && (
             <div className="md-event-navigation">
               <label htmlFor="matchday-event">Evenemang</label>
               <select
@@ -385,7 +481,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                 value={event?.id || ''}
                 onChange={(e) => setEventId(e.target.value)}
               >
-                {published.map((item) => (
+                {visibleEvents.map((item) => (
                   <option key={item.id} value={item.id}>
                     {parentEventDates(item, family?.id).ranges.map(dateRangeLabel).join(', ')} ·{' '}
                     {item.published!.title}
@@ -746,9 +842,17 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
             </>
           ) : (
             <section className="md-no-events">
-              <h1>Lagets bemanning</h1>
-              <h2>Inget schema är publicerat ännu</h2>
-              <p>Nästa tilldelning dyker upp här när planeringen är klar.</p>
+              <h1>{family ? 'Din familjs uppdrag' : 'Lagets bemanning'}</h1>
+              <h2>
+                {family
+                  ? 'Ni har inga inbokade uppdrag just nu'
+                  : 'Inget schema är publicerat ännu'}
+              </h2>
+              <p>
+                {family
+                  ? 'När ni får ett uppdrag på ett publicerat evenemang visas det här.'
+                  : 'Nästa tilldelning dyker upp här när planeringen är klar.'}
+              </p>
             </section>
           )}
         </>
@@ -785,6 +889,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
           onClose={() => setConfirm(null)}
           onSubmit={async (command) => {
             await mutate(command);
+            if (command.type === 'book') setEventId(confirm.event.id);
             setConfirm(null);
             tell(
               command.type === 'book'

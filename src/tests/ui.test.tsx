@@ -394,11 +394,10 @@ describe('matchday parent view', () => {
       screen.getByRole('option', { name: '4 okt. 2030 · Cafébemanning vecka 40' }),
     ).toBeTruthy();
 
-    // Switching to an unassigned family restores the event's full dates.
+    // An unassigned family sees no event; the explicit shared view still has the full dates.
     view.rerender(<Parents {...props} familyId="family-two" />);
-    const fullDates = screen.getByRole('list', { name: 'Evenemangets datum' });
-    expect(within(fullDates).getByText('28')).toBeTruthy();
-    expect(within(fullDates).getByText('till 4 okt.')).toBeTruthy();
+    expect(screen.getByText('Ni har inga inbokade uppdrag just nu')).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Evenemangets datum' })).toBeNull();
 
     view.rerender(<Parents {...props} familyId="" />);
     await userEvent.setup().click(screen.getByRole('button', { name: 'Visa hela schemat' }));
@@ -505,6 +504,29 @@ describe('matchday parent view', () => {
     expect(within(own).getByRole('button', { name: 'Bekräfta passet' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: /Privat planeringsutkast/ })).toBeNull();
     expect(screen.queryByText('Privat arbetsanteckning')).toBeNull();
+    expect(screen.queryByRole('option', { name: /Lagets tidigare sammandrag/ })).toBeNull();
+  });
+
+  it('removes a selected event when the family assignment is removed instead of showing an unrelated event', async () => {
+    server.events.push(publishedEvent('own-later', 'Eget senare evenemang', '2030-07-01'));
+    server.events.push(
+      publishedEvent('other-family', 'Annans evenemang', '2030-06-20', 'family-two'),
+    );
+    const props = { familyId: 'family-one', setFamilyId: vi.fn(), mutate: vi.fn(), tell: vi.fn() };
+    const view = render(<Parents {...props} state={server} />);
+    await userEvent
+      .setup()
+      .selectOptions(screen.getByRole('combobox', { name: 'Evenemang' }), 'own-later');
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Eget senare evenemang');
+    const latest = structuredClone(server);
+    for (const item of latest.events)
+      for (const shift of item.published?.shifts || [])
+        for (const slot of shift.slots) if (slot.familyId === 'family-one') delete slot.familyId;
+    view.rerender(<Parents {...props} state={latest} />);
+    expect(screen.getByText('Ni har inga inbokade uppdrag just nu')).toBeTruthy();
+    expect(screen.queryByText('Annans evenemang')).toBeNull();
+    expect(screen.queryByText('Eget senare evenemang')).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Evenemang' })).toBeNull();
   });
 
   it('finds a sibling through one family choice and keeps every assigned slot actionable', async () => {
@@ -909,6 +931,11 @@ it('lets a parent book a vacant preparation, enter a contribution and see the de
   });
   const props = { setFamilyId: vi.fn(), mutate, tell: vi.fn(), familyId: 'family-one' };
   const view = render(<Parents {...props} state={projected(server)} />);
+  expect(screen.getByText('Ni har inga inbokade uppdrag just nu')).toBeTruthy();
+  expect(screen.queryByRole('combobox', { name: 'Evenemang' })).toBeNull();
+  const bookingEntry = screen.getByText('Boka ett ledigt uppdrag');
+  expect(bookingEntry.closest('details')?.open).toBe(false);
+  await user.click(bookingEntry);
   expect(screen.getByText('Bakning')).toBeTruthy();
   expect(screen.getByText('Senast 15 juni kl. 11:00')).toBeTruthy();
   await user.click(screen.getByRole('button', { name: 'Boka platsen' }));
@@ -928,6 +955,7 @@ it('lets a parent book a vacant preparation, enter a contribution and see the de
     answer: 'Kanelbullar',
   });
   view.rerender(<Parents {...props} state={projected(server)} />);
+  expect(screen.queryByText('Boka ett ledigt uppdrag')).toBeNull();
   const own = screen.getByRole('region', { name: 'Familjens uppdrag' });
   expect(within(own).getByText('Bekräftat')).toBeTruthy();
   await user.click(within(own).getByRole('button', { name: 'Skriv / ändra uppgifter' }));
@@ -937,6 +965,40 @@ it('lets a parent book a vacant preparation, enter a contribution and see the de
   await user.click(screen.getByRole('button', { name: 'Spara uppgifter' }));
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   expect(server.events[0].published!.shifts[0].slots[0].answer).toBe('Muffins');
+});
+
+it('keeps self booking outside the personal event picker and hides places that cannot be booked', async () => {
+  server.events.push(publishedEvent('own-later', 'Eget senare evenemang', '2030-07-01'));
+  const open = publishedEvent('open', 'Öppen självbokning', '2030-06-20');
+  open.published!.bookingMode = 'self';
+  delete open.published!.shifts[0].slots[0].familyId;
+  const locked = structuredClone(open);
+  locked.id = 'locked';
+  locked.published!.title = 'Låst evenemang';
+  locked.published!.shifts[0].slots[0].locked = true;
+  const cancelled = structuredClone(open);
+  cancelled.id = 'cancelled';
+  cancelled.cancelled = true;
+  cancelled.published!.title = 'Inställt öppet evenemang';
+  server.events.push(open, locked, cancelled);
+  render(
+    <Parents
+      state={projected(server)}
+      familyId="family-one"
+      setFamilyId={vi.fn()}
+      mutate={vi.fn()}
+      tell={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Öppet testsammandrag');
+  const picker = screen.getByRole('combobox', { name: 'Evenemang' });
+  expect(within(picker).getAllByRole('option')).toHaveLength(2);
+  expect(within(picker).queryByRole('option', { name: /Öppen självbokning/ })).toBeNull();
+  await userEvent.setup().click(screen.getByText('Boka ett ledigt uppdrag'));
+  const bookings = screen.getByRole('region', { name: 'Lediga uppdrag att boka' });
+  expect(within(bookings).getByRole('heading', { name: 'Öppen självbokning' })).toBeTruthy();
+  expect(within(bookings).queryByText('Låst evenemang')).toBeNull();
+  expect(within(bookings).queryByText('Inställt öppet evenemang')).toBeNull();
 });
 
 it('does not offer self booking in administrator assigned events', () => {
