@@ -1660,26 +1660,42 @@ function Families({
   onOpenConnection: () => void;
 }) {
   const [query, setQuery] = useState('');
-  const [showInactive, setShowInactive] = useState(false);
+  const [membership, setMembership] = useState<'active' | 'inactive' | 'all'>('active');
+  const [source, setSource] = useState<'all' | 'sportadmin' | 'manual'>('all');
+  const [staffing, setStaffing] = useState<'all' | 'exempt' | 'included'>('all');
   const [editing, setEditing] = useState<Family | null>(null);
   const counts = balances(state);
-  const visibleChildren = (familyId: string) =>
-    state.children.filter((c) => c.familyId === familyId && (showInactive || c.active));
+  const search = query.trim().toLocaleLowerCase('sv');
   const rows = state.families
-    .filter(
-      (f) =>
-        (showInactive || f.active) &&
-        visibleChildren(f.id).length > 0 &&
-        [
-          f.label,
-          ...visibleChildren(f.id).map((c) => c.name),
-          ...familyAdults(state, f.id).flatMap((a) => [a.name, a.phone, a.email || '']),
-        ]
-          .join(' ')
-          .toLocaleLowerCase('sv')
-          .includes(query.toLocaleLowerCase('sv')),
-    )
-    .sort((a, b) => familyLabel(state, a.id).localeCompare(familyLabel(state, b.id), 'sv'));
+    .filter((family) => staffing === 'all' || family.exempt === (staffing === 'exempt'))
+    .map((family) => {
+      const parentMatches = familyAdults(state, family.id)
+        .flatMap((adult) => [adult.name, adult.phone, adult.email || ''])
+        .join(' ')
+        .toLocaleLowerCase('sv')
+        .includes(search);
+      const children = state.children.filter((child) => {
+        const active = child.active && family.active;
+        return (
+          child.familyId === family.id &&
+          (membership === 'all' || active === (membership === 'active')) &&
+          (source === 'all' || (child.source || 'manual') === source) &&
+          (!search || parentMatches || child.name.toLocaleLowerCase('sv').includes(search))
+        );
+      });
+      return { family, children };
+    })
+    .filter((row) => row.children.length > 0)
+    .sort((a, b) => a.children[0].name.localeCompare(b.children[0].name, 'sv'));
+  const visibleCount = rows.reduce((count, row) => count + row.children.length, 0);
+  const filtersChanged =
+    !!query || membership !== 'active' || source !== 'all' || staffing !== 'all';
+  function resetFilters() {
+    setQuery('');
+    setMembership('active');
+    setSource('all');
+    setStaffing('all');
+  }
   return (
     <>
       <div className="page-heading">
@@ -1698,7 +1714,7 @@ function Families({
         </button>
       </div>
       <PlayerSync state={state} refresh={refresh} onOpenConnection={onOpenConnection} />
-      <div className="toolbar">
+      <div className="player-directory-filters" role="group" aria-label="Filtrera spelare">
         <div className="search-input">
           <Search size={18} />
           <input
@@ -1708,14 +1724,43 @@ function Families({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <label className="check-label">
-          <input
-            type="checkbox"
-            checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
-          />
-          Visa även slutade spelare
+        <label>
+          I laget
+          <select
+            value={membership}
+            onChange={(e) => setMembership(e.target.value as typeof membership)}
+          >
+            <option value="all">Alla</option>
+            <option value="active">Aktiva</option>
+            <option value="inactive">Avslutade</option>
+          </select>
         </label>
+        <label>
+          Registerstatus
+          <select value={source} onChange={(e) => setSource(e.target.value as typeof source)}>
+            <option value="all">Alla</option>
+            <option value="sportadmin">Synkade</option>
+            <option value="manual">Manuella</option>
+          </select>
+        </label>
+        <label>
+          Bemanning
+          <select value={staffing} onChange={(e) => setStaffing(e.target.value as typeof staffing)}>
+            <option value="all">Alla</option>
+            <option value="exempt">Undantagna</option>
+            <option value="included">Ej undantagna</option>
+          </select>
+        </label>
+      </div>
+      <div className="player-filter-summary">
+        <p className="hint" role="status">
+          Visar {visibleCount} av {state.children.length} spelare.
+        </p>
+        {filtersChanged && (
+          <button className="text-button" onClick={resetFilters}>
+            Återställ filter
+          </button>
+        )}
       </div>
       <section className="panel table-panel">
         <div className="table-scroll">
@@ -1729,11 +1774,11 @@ function Families({
               </tr>
             </thead>
             <tbody>
-              {rows.map((f) => (
+              {rows.map(({ family: f, children }) => (
                 <tr key={f.id}>
                   <td>
                     <div className="directory-children">
-                      {visibleChildren(f.id).map((child) => (
+                      {children.map((child) => (
                         <div key={child.id} className="directory-player">
                           <strong>{child.name}</strong>
                           <div className="player-statuses">
@@ -1785,7 +1830,11 @@ function Families({
             </tbody>
           </table>
         </div>
-        {rows.length === 0 && <Empty title="Inga familjer hittades" />}
+        {rows.length === 0 && (
+          <Empty title="Inga spelare matchar filtren">
+            Prova en annan kombination eller återställ filtren.
+          </Empty>
+        )}
       </section>
       <div className="hint-box">
         <ShieldCheck size={20} />

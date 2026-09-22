@@ -4029,3 +4029,51 @@ tr:last-child td {
     padding-left: 0;
   }
 }
+
+.player-directory-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.6fr) repeat(3, minmax(140px, 1fr));
+  align-items: end;
+  gap: 16px;
+}
+.player-directory-filters > label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.player-directory-filters .search-input,
+.player-directory-filters select {
+  width: 100%;
+  min-width: 0;
+}
+.player-directory-filters select {
+  min-height: 44px;
+}
+.player-filter-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  margin: 4px 0 12px;
+}
+.player-filter-summary .hint {
+  margin: 0;
+}
+@media (max-width: 900px) {
+  .player-directory-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .player-directory-filters .search-input {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 480px) {
+  .player-directory-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .player-directory-filters > label:last-child {
+    grid-column: 1 / -1;
+  }
+}

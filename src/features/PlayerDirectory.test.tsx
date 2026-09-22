@@ -152,3 +152,43 @@ for (const [label, resolution] of [
     expect(screen.queryByRole('article')).toBeNull();
   });
 }
+
+test('status filters combine with parent search per player, including mixed siblings, departed players and reset', async () => {
+  const { state } = fixture();
+  const [manual, syncedSibling] = state.children;
+  delete manual.source; // Older local players are also manual in the directory.
+  syncedSibling.active = false;
+  render(
+    <Admin state={state} page="familjer" mutate={vi.fn()} tell={vi.fn()} navigate={vi.fn()} />,
+  );
+  await screen.findByText(/Senaste synkning:/);
+  const user = userEvent.setup();
+  await user.type(screen.getByLabelText('Sök barn eller förälder'), state.adults[0].name);
+  await user.selectOptions(screen.getByLabelText('Registerstatus'), 'manual');
+  await user.selectOptions(screen.getByLabelText('Bemanning'), 'exempt');
+  expect(screen.getByText(manual.name)).toBeTruthy();
+  expect(screen.queryByText(syncedSibling.name)).toBeNull();
+  expect(screen.getByText(`Visar 1 av ${state.children.length} spelare.`)).toBeTruthy();
+
+  await user.selectOptions(screen.getByLabelText('I laget'), 'inactive');
+  expect(screen.getByText('Inga spelare matchar filtren')).toBeTruthy();
+  await user.selectOptions(screen.getByLabelText('Registerstatus'), 'sportadmin');
+  expect(screen.getByText(syncedSibling.name)).toBeTruthy();
+  expect(screen.queryByText(manual.name)).toBeNull();
+  expect(screen.getByText('AVSLUTAD')).toBeTruthy();
+
+  await user.selectOptions(screen.getByLabelText('Bemanning'), 'included');
+  expect(screen.getByText('Inga spelare matchar filtren')).toBeTruthy();
+  await user.selectOptions(screen.getByLabelText('Bemanning'), 'all');
+  await user.selectOptions(screen.getByLabelText('I laget'), 'all');
+  await user.selectOptions(screen.getByLabelText('Registerstatus'), 'all');
+  expect(screen.getByText(manual.name)).toBeTruthy();
+  expect(screen.getByText(syncedSibling.name)).toBeTruthy();
+
+  await user.click(screen.getByRole('button', { name: 'Återställ filter' }));
+  expect((screen.getByLabelText('Sök barn eller förälder') as HTMLInputElement).value).toBe('');
+  expect(screen.getByText(manual.name)).toBeTruthy();
+  expect(screen.queryByText(syncedSibling.name)).toBeNull();
+  expect(screen.getByText(state.children[3].name)).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Återställ filter' })).toBeNull();
+});
