@@ -703,11 +703,12 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                       pass gäller fortfarande.
                     </p>
                   )}
-                  <p className="md-roster-intro">
-                    {details.bookingMode === 'self' && !event.cancelled && !eventPast
-                      ? 'Välj ett ledigt uppdrag och boka platsen. Ni bekräftar vem som kommer i samma steg.'
-                      : 'Ni hjälps åt runt laget.'}
-                  </p>
+                  {details.bookingMode === 'self' && !event.cancelled && !eventPast && (
+                    <p className="md-roster-intro">
+                      Välj ett ledigt uppdrag och boka platsen. Ni bekräftar vem som kommer i samma
+                      steg.
+                    </p>
+                  )}
                   {roleGroups.length === 0 && (
                     <p className="md-empty-copy">
                       Inga pass är inlagda på det här evenemanget ännu.
