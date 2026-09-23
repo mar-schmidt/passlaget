@@ -1585,3 +1585,83 @@ describe('manual replacement after automatic planning', () => {
     ).toBe(false);
   });
 });
+
+it('opens a shared event before family selection and preserves it through booking', async () => {
+  const user = userEvent.setup();
+  const event = publishedEvent('ghost-walk', 'Spökvandring', '2030-10-31');
+  event.published!.bookingMode = 'self';
+  delete event.published!.shifts[0].slots[0].familyId;
+  event.draft = structuredClone(event.published!);
+  server.events.push(event);
+  history.replaceState(null, '', '/LandvetterISP2018/#/foraldrar/evenemang/ghost-walk');
+  render(<App />);
+  expect(await screen.findByRole('heading', { name: 'Spökvandring' })).toBeTruthy();
+  expect(screen.queryByText('Boka ett ledigt uppdrag')).toBeNull();
+  await user.click(screen.getByRole('button', { name: 'Välj familj för att boka' }));
+  await user.click(screen.getByRole('button', { name: 'Testbarn Ett' }));
+  expect(screen.getByRole('heading', { name: 'Spökvandring' })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Boka platsen' }));
+  const modal = screen.getByRole('dialog', { name: 'Boka ett uppdrag' });
+  await user.type(within(modal).getByRole('textbox', { name: 'Telefonnummer' }), '0701234567');
+  await user.type(
+    within(modal).getByRole('textbox', { name: 'Mejladress' }),
+    'parent@example.test',
+  );
+  await user.click(within(modal).getByRole('checkbox'));
+  await user.click(within(modal).getByRole('button', { name: 'Boka och bekräfta' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  expect(client.runCommand.mock.calls.at(-1)?.[0]).toMatchObject({
+    type: 'book',
+    eventId: 'ghost-walk',
+    familyId: 'family-one',
+  });
+  expect(screen.getByRole('heading', { name: 'Spökvandring' })).toBeTruthy();
+  await user.click(screen.getByRole('button', { name: 'Kopiera evenemangslänk' }));
+  expect(await navigator.clipboard.readText()).toBe(
+    `${location.origin}/LandvetterISP2018/#/foraldrar/evenemang/ghost-walk`,
+  );
+  await user.click(screen.getByRole('link', { name: 'Till föräldrasidan' }));
+  await waitFor(() =>
+    expect(screen.queryByRole('link', { name: 'Till föräldrasidan' })).toBeNull(),
+  );
+});
+
+it.each(['missing-event', 'private-event', '%E0%A4%A'])(
+  'does not substitute another event for unavailable shared link %s',
+  (id) => {
+    history.replaceState(null, '', `/#/foraldrar/evenemang/${id}`);
+    render(
+      <Parents
+        state={projected(server)}
+        familyId="family-one"
+        setFamilyId={vi.fn()}
+        mutate={vi.fn()}
+        tell={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('heading', { name: 'Evenemanget är inte tillgängligt' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Öppet testsammandrag' })).toBeNull();
+  },
+);
+
+it('keeps a fully booked shared event visible and follows hash navigation between events', async () => {
+  const event = server.events[0];
+  event.published!.bookingMode = 'self';
+  history.replaceState(null, '', `/#/foraldrar/evenemang/${event.id}`);
+  render(
+    <Parents
+      state={projected(server)}
+      familyId="family-two"
+      setFamilyId={vi.fn()}
+      mutate={vi.fn()}
+      tell={vi.fn()}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: event.published!.title })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Boka platsen' })).toBeNull();
+  act(() => {
+    history.replaceState(null, '', '/#/foraldrar/evenemang/missing');
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+  });
+  expect(screen.getByRole('heading', { name: 'Evenemanget är inte tillgängligt' })).toBeTruthy();
+});

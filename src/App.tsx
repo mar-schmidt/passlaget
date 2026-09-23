@@ -28,7 +28,7 @@ import { BusyButton, Modal, Notice } from './ui';
 type Page =
   'foraldrar' | 'oversikt' | 'evenemang' | 'familjer' | 'fordelning' | 'paminnelser' | 'sportadmin';
 const route = (): Page => {
-  const value = location.hash.replace(/^#\//, '');
+  const value = location.hash.replace(/^#\//, '').split('/')[0];
   return [
     'foraldrar',
     'oversikt',

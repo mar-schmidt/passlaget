@@ -37,6 +37,17 @@ import {
 import './parents-matchday.css';
 import ContactParents from './ContactParents';
 
+const eventLink = (id: string) => `#/foraldrar/evenemang/${encodeURIComponent(id)}`;
+function linkedEventId() {
+  const prefix = '#/foraldrar/evenemang/';
+  if (!location.hash.startsWith(prefix)) return '';
+  try {
+    return decodeURIComponent(location.hash.slice(prefix.length)) || '__missing__';
+  } catch {
+    return '__missing__';
+  }
+}
+
 type Selection = { event: PortalEvent; shift: Shift; slot: Slot; booking?: boolean };
 interface Props {
   state: PortalState;
@@ -94,6 +105,30 @@ function PublishedStatus({ slot }: { slot: Slot }) {
 
 export default function Parents({ state, familyId, setFamilyId, mutate, tell }: Props) {
   const [eventId, setEventId] = useState('');
+  const [linkedId, setLinkedId] = useState(linkedEventId);
+  useEffect(() => {
+    const change = () => {
+      setLinkedId(linkedEventId());
+      setChoosingFamily(false);
+      setConfirm(null);
+      setAnswers(null);
+      setRequest(null);
+    };
+    window.addEventListener('hashchange', change);
+    return () => window.removeEventListener('hashchange', change);
+  }, []);
+  async function copyEventLink(id: string) {
+    const url = `${location.origin}${location.pathname}${eventLink(id)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      tell('Länken till evenemanget är kopierad.');
+    } catch {
+      tell(
+        'Kunde inte kopiera länken. Öppna evenemangets sida och kopiera adressen i webbläsaren.',
+        true,
+      );
+    }
+  }
   const [query, setQuery] = useState('');
   const [choosingFamily, setChoosingFamily] = useState(false);
   const [showPublic, setShowPublic] = useState(false);
@@ -165,14 +200,16 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
     visibleEvents.find((event) => !event.cancelled && event.published!.endDate >= today) ||
     visibleEvents.filter((event) => !event.cancelled).at(-1) ||
     visibleEvents.at(-1);
-  const event = visibleEvents.find((item) => item.id === eventId) || defaultEvent;
+  const event = linkedId
+    ? published.find((item) => item.id === linkedId)
+    : visibleEvents.find((item) => item.id === eventId) || defaultEvent;
   const details = event?.published;
   const familyHasPass = !!family && familyHasStaffingPass(details, family.id);
   const ownAssignments = allAssignments.filter((item) => item.event.id === event?.id);
   const posterDates = event ? parentEventDates(event, family?.id) : undefined;
   const multiDay = Boolean(details && details.startDate !== details.endDate);
   const eventPast = Boolean(details && details.endDate < today);
-  const showChooser = choosingFamily || (!family && !showPublic);
+  const showChooser = choosingFamily || (!family && !showPublic && !linkedId);
   const familyOptions = state.families.filter(
     (f) =>
       f.active &&
@@ -265,6 +302,11 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
   }
   return (
     <div className="matchday-page">
+      {linkedId && (
+        <a className="md-link" href="#/foraldrar">
+          Till föräldrasidan
+        </a>
+      )}
       {showChooser ? (
         <section className="md-welcome" aria-labelledby="family-welcome-title">
           <h1 id="family-welcome-title">Välj ditt barn för att komma vidare</h1>
@@ -365,7 +407,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
               {family ? 'Byt spelare' : 'Välj familj'}
             </button>
           </div>
-          {family && allAssignments.length > 0 && (
+          {!linkedId && family && allAssignments.length > 0 && (
             <details className="md-family-agenda">
               <summary>
                 <span>Familjens alla pass ({allAssignments.length})</span>
@@ -406,7 +448,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
               </ul>
             </details>
           )}
-          {family && openBookings.length > 0 && (
+          {!linkedId && family && openBookings.length > 0 && (
             <details className="md-open-bookings">
               <summary>
                 Boka ett ledigt uppdrag <span>{openBookings.length} evenemang</span>
@@ -419,6 +461,18 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                 {openBookings.map(({ event: bookable, shifts }) => (
                   <article className="md-booking-event" key={bookable.id}>
                     <h3>{bookable.published!.title}</h3>
+                    <p>
+                      <a className="md-link" href={eventLink(bookable.id)}>
+                        Öppna evenemangets sida
+                      </a>
+                    </p>
+                    <button
+                      type="button"
+                      className="md-link"
+                      onClick={() => void copyEventLink(bookable.id)}
+                    >
+                      Kopiera evenemangslänk
+                    </button>
                     <p className="md-muted">{bookable.published!.location}</p>
                     {bookable.published!.description && (
                       <p className="md-description">{bookable.published!.description}</p>
@@ -473,7 +527,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
               </div>
             </details>
           )}
-          {visibleEvents.length > 1 && (
+          {!linkedId && visibleEvents.length > 1 && (
             <div className="md-event-navigation">
               <label htmlFor="matchday-event">Evenemang</label>
               <select
@@ -527,6 +581,22 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                           : 'Vi gör det tillsammans'}
                   </p>
                   <h1>{details.title}</h1>
+                  {details.bookingMode === 'self' && (
+                    <p>
+                      {!linkedId && (
+                        <a className="md-link" href={eventLink(event.id)}>
+                          Öppna evenemangets sida
+                        </a>
+                      )}
+                      <button
+                        type="button"
+                        className="md-link"
+                        onClick={() => void copyEventLink(event.id)}
+                      >
+                        Kopiera evenemangslänk
+                      </button>
+                    </p>
+                  )}
                   <p className="md-place">
                     <MapPin size={17} aria-hidden="true" />
                     {details.location || 'Plats meddelas senare'}
@@ -843,16 +913,26 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
             </>
           ) : (
             <section className="md-no-events">
-              <h1>{family ? 'Din familjs uppdrag' : 'Lagets bemanning'}</h1>
+              <h1>
+                {linkedId
+                  ? 'Evenemanget är inte tillgängligt'
+                  : family
+                    ? 'Din familjs uppdrag'
+                    : 'Lagets bemanning'}
+              </h1>
               <h2>
-                {family
-                  ? 'Ni har inga inbokade uppdrag just nu'
-                  : 'Inget schema är publicerat ännu'}
+                {linkedId
+                  ? 'Länken kan vara gammal eller evenemanget är inte publicerat.'
+                  : family
+                    ? 'Ni har inga inbokade uppdrag just nu'
+                    : 'Inget schema är publicerat ännu'}
               </h2>
               <p>
-                {family
-                  ? 'När ni får ett uppdrag på ett publicerat evenemang visas det här.'
-                  : 'Nästa tilldelning dyker upp här när planeringen är klar.'}
+                {linkedId
+                  ? 'Gå till föräldrasidan för att se aktuella evenemang.'
+                  : family
+                    ? 'När ni får ett uppdrag på ett publicerat evenemang visas det här.'
+                    : 'Nästa tilldelning dyker upp här när planeringen är klar.'}
               </p>
             </section>
           )}
