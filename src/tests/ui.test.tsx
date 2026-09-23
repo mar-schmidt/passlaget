@@ -1616,10 +1616,6 @@ it('opens a shared event before family selection and preserves it through bookin
     familyId: 'family-one',
   });
   expect(screen.getByRole('heading', { name: 'Spökvandring' })).toBeTruthy();
-  await user.click(screen.getByRole('button', { name: 'Kopiera evenemangslänk' }));
-  expect(await navigator.clipboard.readText()).toBe(
-    `${location.origin}/LandvetterISP2018/#/foraldrar/evenemang/ghost-walk`,
-  );
   await user.click(screen.getByRole('link', { name: 'Till föräldrasidan' }));
   await waitFor(() =>
     expect(screen.queryByRole('link', { name: 'Till föräldrasidan' })).toBeNull(),

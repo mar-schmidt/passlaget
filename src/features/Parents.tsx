@@ -117,18 +117,6 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
     window.addEventListener('hashchange', change);
     return () => window.removeEventListener('hashchange', change);
   }, []);
-  async function copyEventLink(id: string) {
-    const url = `${location.origin}${location.pathname}${eventLink(id)}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      tell('Länken till evenemanget är kopierad.');
-    } catch {
-      tell(
-        'Kunde inte kopiera länken. Öppna evenemangets sida och kopiera adressen i webbläsaren.',
-        true,
-      );
-    }
-  }
   const [query, setQuery] = useState('');
   const [choosingFamily, setChoosingFamily] = useState(false);
   const [showPublic, setShowPublic] = useState(false);
@@ -466,13 +454,6 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                         Öppna evenemangets sida
                       </a>
                     </p>
-                    <button
-                      type="button"
-                      className="md-link"
-                      onClick={() => void copyEventLink(bookable.id)}
-                    >
-                      Kopiera evenemangslänk
-                    </button>
                     <p className="md-muted">{bookable.published!.location}</p>
                     {bookable.published!.description && (
                       <p className="md-description">{bookable.published!.description}</p>
@@ -581,20 +562,11 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                           : 'Vi gör det tillsammans'}
                   </p>
                   <h1>{details.title}</h1>
-                  {details.bookingMode === 'self' && (
+                  {details.bookingMode === 'self' && !linkedId && (
                     <p>
-                      {!linkedId && (
-                        <a className="md-link" href={eventLink(event.id)}>
-                          Öppna evenemangets sida
-                        </a>
-                      )}
-                      <button
-                        type="button"
-                        className="md-link"
-                        onClick={() => void copyEventLink(event.id)}
-                      >
-                        Kopiera evenemangslänk
-                      </button>
+                      <a className="md-link" href={eventLink(event.id)}>
+                        Öppna evenemangets sida
+                      </a>
                     </p>
                   )}
                   <p className="md-place">
