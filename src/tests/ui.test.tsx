@@ -370,7 +370,11 @@ describe('parent actions', () => {
         tell={tell}
       />,
     );
-    await user.click(screen.getByRole('button', { name: 'Lägg till i kalender' }));
+    const summary = screen.getByText('Familjens alla pass (1)');
+    await user.click(summary);
+    const agenda = summary.closest('details')!;
+    expect(agenda.open).toBe(true);
+    await user.click(within(agenda).getByRole('button', { name: 'Lägg till i kalender' }));
     await waitFor(() =>
       expect(tell).toHaveBeenCalledWith(expect.stringMatching(/inte längre aktuellt/i), true),
     );
@@ -765,7 +769,11 @@ describe('portal without email', () => {
     );
     expect(screen.queryByRole('button', { name: 'Mejlpåminnelser' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Bekräfta passet' })).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: 'Lägg till i kalender' }));
+    await user.click(
+      within(screen.getByRole('region', { name: 'Familjens uppdrag' })).getByRole('button', {
+        name: 'Lägg till i kalender',
+      }),
+    );
     expect(await screen.findByRole('dialog', { name: 'Lägg till i kalender' })).toBeTruthy();
     expect(client.api).not.toHaveBeenCalled();
   });

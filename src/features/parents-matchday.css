@@ -304,10 +304,21 @@
   margin: 0 0 15px;
   padding: 0;
 }
+.matchday-page .md-family-agenda li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 20px;
+}
 .matchday-page .md-family-agenda li + li {
   border-top: 1px solid var(--md-line);
 }
-.matchday-page .md-family-agenda li button {
+.matchday-page .md-agenda-calendar {
+  justify-self: start;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.matchday-page .md-family-agenda .md-agenda-pass {
   width: 100%;
   border: 0;
   border-radius: 0;
@@ -319,15 +330,15 @@
   padding: 14px 0;
   text-align: left;
 }
-.matchday-page .md-family-agenda li button:hover {
+.matchday-page .md-family-agenda .md-agenda-pass:hover {
   background: var(--md-soft);
 }
-.matchday-page .md-family-agenda li button > span:first-child {
+.matchday-page .md-family-agenda .md-agenda-pass > span:first-child {
   display: grid;
   gap: 3px;
   font-size: 14px;
 }
-.matchday-page .md-family-agenda li button > span > span {
+.matchday-page .md-family-agenda .md-agenda-pass > span > span {
   color: var(--md-muted);
   overflow-wrap: anywhere;
 }
@@ -961,7 +972,11 @@
     margin-left: 14px;
     margin-top: 2px;
   }
-  .matchday-page .md-family-agenda li button {
+  .matchday-page .md-family-agenda li {
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 8px;
+  }
+  .matchday-page .md-family-agenda .md-agenda-pass {
     flex-wrap: wrap;
   }
   .matchday-page .md-assignment-main {

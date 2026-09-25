@@ -406,6 +406,7 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                   <li key={`${item.event.id}-${item.slot.id}`}>
                     <button
                       type="button"
+                      className="md-agenda-pass"
                       onClick={(e) => {
                         setEventId(item.event.id);
                         const accordion = e.currentTarget.closest('details');
@@ -431,6 +432,18 @@ export default function Parents({ state, familyId, setFamilyId, mutate, tell }: 
                         }
                       />
                     </button>
+                    {!item.event.cancelled &&
+                      ['pending', 'confirmed'].includes(item.slot.status) && (
+                        <BusyButton
+                          type="button"
+                          className="md-link md-agenda-calendar"
+                          busy={loadingCalendar === item.slot.id}
+                          onClick={() => openCalendar(item)}
+                        >
+                          <CalendarDays size={17} aria-hidden="true" />
+                          Lägg till i kalender
+                        </BusyButton>
+                      )}
                   </li>
                 ))}
               </ul>
