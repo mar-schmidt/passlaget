@@ -1224,15 +1224,18 @@ function EventEditor({
                   )}
                   <label>
                     Antal vuxna
-                    <input
+                    <select
                       aria-label={`Antal vuxna pass ${index + 1}`}
-                      type="number"
-                      min={1}
-                      max={40}
                       disabled={!!shift.externalTeam}
                       value={shift.slots.length || 1}
                       onChange={(e) => changeCount(shift, Number(e.target.value))}
-                    />
+                    >
+                      {Array.from({ length: 40 }, (_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </div>
                 {shift.kind !== 'task' ? (
